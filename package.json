@@ -5,6 +5,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
+    "test": "bun test",
     "demo:velotic": "bun run src/demo/velotic.ts",
     "prepublishOnly": "bun run build"
   },

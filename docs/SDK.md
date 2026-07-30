@@ -47,13 +47,18 @@ await t.ingest(
   { content: "Observed locally" },
   {
     occurredAt: new Date().toISOString(),
-    eventId: "optional-idempotency-candidate",
+    eventId: "optional-network-unique-id",
   },
 );
 ```
 
 The stream determines the accepted payload type. The daemon returns the full
-event envelope.
+event envelope with canonical UTC timestamps.
+
+`eventId` is unique within the configured network. Retrying an equivalent event
+returns the originally stored envelope; reusing the ID with a different stream,
+supplied occurrence time, or payload is rejected. Payload whitespace and object
+key order do not affect equivalence.
 
 ## Queries
 
@@ -134,10 +139,85 @@ ctx.ingest("insights:summary", {
 Derived events use the same ingestion path as source events. The SDK does not
 currently attach lineage, window IDs, or idempotency metadata automatically.
 
+## Daemon Status
+
+`networkStatus()` returns the local peer/device identity, advertised addresses,
+daemon version, local and mesh protocol versions, storage schema version, and
+membership-file version. Its return type is the exported `NetworkStatus`
+interface.
+
+## Network Membership
+
+The SDK exposes the daemon's additive membership actions:
+
+```ts
+const created = await t.createNetwork("home");
+console.log(created.membership); // { name, id }
+
+// Transfer created.invitation out of band to another trusted device.
+await other.joinNetwork(created.invitation);
+
+// Reissue it later instead of persisting the invitation in application state.
+const reissued = await t.inviteNetwork("home");
+
+const memberships = await t.listNetworks(); // secrets are redacted
+```
+
+Invitations are bearer credentials containing a network secret. Applications
+must not log or persist them casually. In membership protocol version 1,
+`inviteNetwork()` deterministically re-encodes the same shared network secret;
+it does not create an expiring or revocable enrollment token. Its
+`credentialMode` is therefore `"shared-bearer"`.
+
+For approval-based enrollment:
+
+```ts
+const opened = await existing.openEnrollment("home", 600);
+const candidates = await joining.discoverEnrollments();
+
+// Existing device polls and displays these to its operator.
+const requests = await existing.listEnrollmentRequests("home");
+await existing.decideEnrollment(requests[0].id, true);
+
+// Joining device waits for that decision, mounts membership, and initially syncs.
+await joining.requestEnrollment(candidates[0], "Work MacBook");
+await existing.closeEnrollment(opened.offer.id);
+```
+
+LAN discovery uses mDNS. `discoverEnrollments(targetAddr)` provides the manual
+fallback for already reachable VPN, routed, forwarded, or public addresses.
+Discovery never returns credentials; only approval transfers the current
+shared-bearer credential over the encrypted libp2p connection.
+
+Once both daemons mount the same network, connect and mutually authenticate one
+network at a time:
+
+```ts
+await t.dialMeshPeer(
+  "/ip4/192.168.1.20/tcp/4001/p2p/12D3...",
+  "home",
+);
+```
+
+Omitting the second argument uses the `Thalweg` instance's configured network.
+To authenticate and immediately converge missing history in both directions:
+
+```ts
+const result = await t.syncMeshPeer(
+  "/ip4/192.168.1.20/tcp/4001/p2p/12D3...",
+  "home",
+);
+
+console.log(result.pushed, result.pulled);
+```
+
+Synchronization is bounded and inventory-first. The daemon rejects
+same-ID/different-envelope conflicts and events from any network other than the
+one authenticated on the stream.
+
 ## Lifecycle and Errors
 
 `Thalweg.close()` ends the socket. Continuous handles can unregister one
 subscription. The current client rejects pending requests if the socket closes,
 but does not reconnect, time out requests, or expose buffered callback failures
 through the `SiphonHandle`.
-

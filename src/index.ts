@@ -5,6 +5,91 @@ export interface ThalwegConfiguration {
   network: string;
 }
 
+export interface NetworkStatus {
+  peerId: string;
+  deviceId: string;
+  addresses: string[];
+  daemonVersion: string;
+  protocolVersion: number;
+  storageSchemaVersion: number;
+  meshProtocolVersion: number;
+  membershipFileVersion: number;
+}
+
+export interface NetworkMembership {
+  name: string;
+  id: string;
+}
+
+export interface NetworkCreateResult {
+  membership: NetworkMembership;
+  invitation: string;
+}
+
+export interface NetworkInviteResult {
+  membership: NetworkMembership;
+  invitation: string;
+  credentialMode: "shared-bearer";
+}
+
+export interface NetworkJoinResult {
+  membership: NetworkMembership;
+  joined: boolean;
+}
+
+export interface EnrollmentOffer {
+  id: string;
+  network: NetworkMembership;
+  expiresAt: string;
+}
+
+export interface EnrollmentCandidate {
+  peerId: string;
+  targetAddr: string;
+  offer: EnrollmentOffer;
+}
+
+export interface EnrollmentRequest {
+  id: string;
+  network: NetworkMembership;
+  peerId: string;
+  deviceName: string;
+  requestedAt: string;
+  expiresAt: string;
+}
+
+export interface EnrollmentListenResult {
+  offer: EnrollmentOffer;
+  addresses: string[];
+}
+
+export interface EnrollmentDecisionResult {
+  requestId: string;
+  accepted: boolean;
+}
+
+export interface EnrollmentJoinResult {
+  membership: NetworkMembership;
+  joined: boolean;
+  peerId: string;
+  sync: MeshSyncResult;
+}
+
+export interface MeshDialResult {
+  peerId: string;
+  network: NetworkMembership;
+  authorized: true;
+}
+
+export interface MeshSyncResult {
+  peerId: string;
+  network: NetworkMembership;
+  inventoried: number;
+  pushed: number;
+  pulled: number;
+  duplicates: number;
+}
+
 export interface IngestOptions {
   occurredAt?: string;
   eventId?: string;
@@ -263,8 +348,97 @@ export class Thalweg<
     );
   }
 
-  async networkStatus(): Promise<unknown> {
-    return this.client.request("network_status", {});
+  async networkStatus(): Promise<NetworkStatus> {
+    return this.client.request<NetworkStatus>("network_status", {});
+  }
+
+  async createNetwork(name: string): Promise<NetworkCreateResult> {
+    return this.client.request<NetworkCreateResult>("network_create", { name });
+  }
+
+  async inviteNetwork(name: string): Promise<NetworkInviteResult> {
+    return this.client.request<NetworkInviteResult>("network_invite", { name });
+  }
+
+  async joinNetwork(invitation: string): Promise<NetworkJoinResult> {
+    return this.client.request<NetworkJoinResult>("network_join", {
+      invitation,
+    });
+  }
+
+  async listNetworks(): Promise<NetworkMembership[]> {
+    return this.client.request<NetworkMembership[]>("network_list", {});
+  }
+
+  async openEnrollment(
+    network = this.config.network,
+    durationSeconds = 600,
+  ): Promise<EnrollmentListenResult> {
+    return this.client.request<EnrollmentListenResult>("enrollment_listen", {
+      network,
+      durationSeconds,
+    });
+  }
+
+  async closeEnrollment(offerId: string): Promise<{ removed: boolean }> {
+    return this.client.request("enrollment_close", { offerId });
+  }
+
+  async listEnrollmentRequests(
+    network = this.config.network,
+  ): Promise<EnrollmentRequest[]> {
+    return this.client.request("enrollment_requests", { network });
+  }
+
+  async decideEnrollment(
+    requestId: string,
+    accepted: boolean,
+  ): Promise<EnrollmentDecisionResult> {
+    return this.client.request(
+      accepted ? "enrollment_approve" : "enrollment_deny",
+      { requestId },
+    );
+  }
+
+  async discoverEnrollments(
+    targetAddr?: string,
+    waitMillis = 2500,
+  ): Promise<EnrollmentCandidate[]> {
+    return this.client.request("enrollment_discover", {
+      targetAddr,
+      waitMillis,
+    });
+  }
+
+  async requestEnrollment(
+    candidate: EnrollmentCandidate,
+    deviceName: string,
+  ): Promise<EnrollmentJoinResult> {
+    return this.client.request("enrollment_join", {
+      targetAddr: candidate.targetAddr,
+      offerId: candidate.offer.id,
+      deviceName,
+    });
+  }
+
+  async dialMeshPeer(
+    targetAddr: string,
+    network = this.config.network,
+  ): Promise<MeshDialResult> {
+    return this.client.request<MeshDialResult>("mesh_dial", {
+      targetAddr,
+      network,
+    });
+  }
+
+  async syncMeshPeer(
+    targetAddr: string,
+    network = this.config.network,
+  ): Promise<MeshSyncResult> {
+    return this.client.request<MeshSyncResult>("mesh_sync", {
+      targetAddr,
+      network,
+    });
   }
 
   basin<K extends keyof Basins>(name: K): Basin<Payloads, Basins, K> {

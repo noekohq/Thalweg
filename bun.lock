@@ -6,9 +6,10 @@
       "name": "@quasarbrains/thalweg-sdk",
       "devDependencies": {
         "@types/bun": "latest",
+        "typescript": "^5.0.0",
       },
       "peerDependencies": {
-        "typescript": "^5",
+        "typescript": "^5.0.0",
       },
     },
   },

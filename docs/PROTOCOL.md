@@ -17,6 +17,10 @@ Messages are newline-delimited JSON. One connection carries:
 Request IDs are process-local strings such as `req_1`. The SDK keeps pending
 promise resolvers in a map keyed by request ID.
 
+Every SDK request carries `protocolVersion: 1`. The SDK requires the same field
+on responses and subscription pushes; an incompatible or missing version
+rejects pending work and closes the connection.
+
 ## Requests
 
 ```ts
@@ -31,6 +35,38 @@ The SDK:
 4. Resolves or rejects when a response with that ID arrives.
 
 The current implementation has no request timeout or cancellation.
+
+For `event_ingest`, the SDK forwards the optional producer `eventId`. The daemon
+treats it as network-unique: equivalent retries return the original envelope,
+while conflicting reuse rejects the request. Returned event timestamps are
+canonical UTC RFC3339Nano even when the request used another valid offset or
+fractional precision.
+
+`network_status` includes daemon, local protocol, mesh protocol, storage schema,
+and membership-file versions for diagnostics.
+
+The public `Thalweg` class also wraps:
+
+- `network_create` as `createNetwork(name)`.
+- `network_invite` as `inviteNetwork(name)`.
+- `network_join` as `joinNetwork(invitation)`.
+- `network_list` as `listNetworks()`.
+- `mesh_dial` as `dialMeshPeer(targetAddr, network?)`.
+- `mesh_sync` as `syncMeshPeer(targetAddr, network?)`.
+- `enrollment_listen` / `enrollment_close` as `openEnrollment()` and
+  `closeEnrollment()`.
+- `enrollment_requests` and approval/denial as `listEnrollmentRequests()` and
+  `decideEnrollment()`.
+- `enrollment_discover` / `enrollment_join` as `discoverEnrollments()` and
+  `requestEnrollment()`.
+
+Network-list results are redacted. Create and invite results contain bearer
+credentials and should be treated as secret. The invite result carries
+`credentialMode: "shared-bearer"` because protocol version 1 reissues the
+persisted shared credential rather than creating a revocable enrollment token.
+
+`syncMeshPeer()` returns typed inventory and transfer counts. Empty daemon
+queries are guaranteed to return arrays rather than `null`.
 
 ## Subscription Pushes
 
@@ -63,6 +99,5 @@ resubscription are not implemented.
 ## Compatibility Rule
 
 Any action, field, response, or push-shape change requires a coordinated release
-with `noekohq/Thalweg`. Until explicit protocol version negotiation exists,
-assume daemon and SDK versions must match.
-
+with `noekohq/Thalweg`. Messages are versioned, but there is no handshake or
+feature negotiation, so daemon and SDK versions must still match.

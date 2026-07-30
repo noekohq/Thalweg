@@ -42,6 +42,7 @@ It is not authoritative for:
 ```bash
 bun install
 bun run build
+bun test
 bun run demo:velotic
 ```
 
@@ -55,6 +56,14 @@ go run . spawn
 
 - `Thalweg<Payloads, Basins>` binds stream names to payload types.
 - `ingest()` and `query()` communicate with the daemon.
+- `createNetwork()`, `inviteNetwork()`, `joinNetwork()`, and `listNetworks()`
+  manage mounted memberships without exposing stored secrets through list
+  results.
+- `dialMeshPeer()` authenticates one explicitly selected network.
+- `syncMeshPeer()` performs bounded bidirectional synchronization for one
+  explicitly selected network.
+- Enrollment APIs open time-bounded offers, discover candidates, inspect and
+  decide pending requests, and join only after approval.
 - `siphon()` starts from all streams.
 - `basin(name).siphon()` starts from a runtime basin stream list.
 - `include()` and `omit()` narrow callback types.
@@ -69,7 +78,8 @@ go run . spawn
 - Buffered failures are launched from `void` and are not exposed on the handle.
 - Basin definitions must be supplied at runtime as the constructor's second
   argument; generic types alone do not exist at runtime.
-- There are no automated TypeScript tests yet.
+- Automated coverage includes request framing, protocol mismatch behavior, and
+  membership API mapping; the public builder API remains untested.
 - Reconnection, request timeouts, backpressure, and callback error handling are
   incomplete.
 
@@ -81,4 +91,3 @@ go run . spawn
 - Coordinate action names and payload fields with `noekohq/Thalweg`.
 - Update `docs/SDK.md` and `docs/PROTOCOL.md` with public changes.
 - Do not embed daemon ordering/storage assumptions in the SDK.
-

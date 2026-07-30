@@ -1,5 +1,7 @@
 import { createConnection, Socket } from "node:net";
 
+export const THALWEG_PROTOCOL_VERSION = 1;
+
 export interface DaemonEvent<P = unknown> {
   id: string;
   network: string;
@@ -14,12 +16,14 @@ export interface DaemonEvent<P = unknown> {
 
 interface RequestMessage {
   id: string;
+  protocolVersion: number;
   action: string;
   payload: unknown;
 }
 
 interface ResponseMessage<T = unknown> {
   id?: string;
+  protocolVersion: number;
   success: boolean;
   data?: T;
   error?: string;
@@ -27,6 +31,7 @@ interface ResponseMessage<T = unknown> {
 
 interface StreamMessage {
   type: "event";
+  protocolVersion: number;
   subscriptionId: string;
   event: DaemonEvent;
 }
@@ -54,7 +59,12 @@ export class DaemonClient {
   async request<T>(action: string, payload: unknown): Promise<T> {
     await this.connect();
     const id = `req_${++this.nextId}`;
-    const message: RequestMessage = { id, action, payload };
+    const message: RequestMessage = {
+      id,
+      protocolVersion: THALWEG_PROTOCOL_VERSION,
+      action,
+      payload,
+    };
 
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, {
@@ -133,6 +143,10 @@ export class DaemonClient {
     for (const part of parts) {
       if (!part.trim()) continue;
       const message = JSON.parse(part) as ResponseMessage | StreamMessage;
+      if (message.protocolVersion !== THALWEG_PROTOCOL_VERSION) {
+        this.failProtocol(message);
+        return;
+      }
 
       if ("type" in message && message.type === "event") {
         const handler = this.subscriptions.get(message.subscriptionId);
@@ -152,5 +166,17 @@ export class DaemonClient {
         pending.reject(new Error(response.error ?? "Thalweg daemon request failed."));
       }
     }
+  }
+
+  private failProtocol(message: ResponseMessage | StreamMessage): void {
+    const received = message.protocolVersion ?? "missing";
+    const error = new Error(
+      `Unsupported Thalweg protocol version ${received}; SDK supports ${THALWEG_PROTOCOL_VERSION}.`,
+    );
+    for (const pending of this.pending.values()) {
+      pending.reject(error);
+    }
+    this.pending.clear();
+    this.socket?.destroy();
   }
 }
