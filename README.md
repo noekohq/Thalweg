@@ -67,3 +67,14 @@ t.basin("timeline")
     });
   });
 ```
+
+## Documentation
+
+- [SDK behavior](docs/SDK.md)
+- [Transport contract](docs/PROTOCOL.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Agent guide](AGENTS.md)
+- [Current handoff](HANDOFF.md)
+
+The Go daemon and canonical event/protocol documentation are maintained
+separately at https://github.com/noekohq/Thalweg.
