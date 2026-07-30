@@ -1,1 +1,4 @@
-thalwag
+thalweg
+storage/
+*.sock
+.DS_Store
