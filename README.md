@@ -44,3 +44,16 @@ chronological timeline.
 The MVP intentionally defers p2p event replication, WebSocket transport, Noeko
 handoff, real local model inference, CRDT basin state, TTL policy, and dirty
 window recomputation.
+
+## Documentation
+
+- [Product specification](SPEC.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Event data model](docs/DATA_MODEL.md)
+- [Local IPC protocol](docs/PROTOCOL.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Agent guide](AGENTS.md)
+- [Current handoff](HANDOFF.md)
+
+The companion TypeScript SDK is maintained separately at
+https://github.com/noekohq/thalweg-js.
