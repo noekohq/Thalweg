@@ -86,6 +86,12 @@ Implemented:
 - Signal-aware shutdown of the listener, clients, storage, and libp2p host.
 - Native Go CLI commands for initialization, network provisioning, event
   inspection, and authenticated peer dial/sync.
+- Explicit invitation reissue from persisted membership without requiring
+  operators to archive invitation strings.
+- Opt-in LAN mDNS discovery and time-bounded approval-based enrollment.
+- Manual-address enrollment fallback for routed/VPN/publicly reachable peers.
+- Structured `--debug` tracing plus raw-TCP versus libp2p dial diagnostics.
+- TCP source-port reuse disabled until hole punching is intentionally designed.
 - Foreground and readiness-checked detached daemon launch with restricted log
   output.
 - Source-checkout installer targeting a user-selected binary directory.
@@ -208,7 +214,10 @@ Definition of done:
 
 - [x] Model physical device identity separately from per-network membership.
 - [x] Create, join, and inspect credentials for multiple networks.
+- [x] Explicitly reissue the current version-1 shared-bearer invitation.
 - Add network leave plus credential rotation and revocation.
+- Replace shared-bearer invitations with expiring enrollment credentials and
+  independently revocable device membership.
 - [x] Give each network independent membership keys and persisted peers.
 - Give each network independent placement and retention policy.
 - Prevent ambient queries, subscriptions, or replication across networks.
@@ -216,7 +225,13 @@ Definition of done:
 - [x] Add an authenticated, bounded, and versioned remote membership handshake
   separate from trusted local IPC routing.
 - [x] Add authenticated inventory and event protocol messages.
-- Implement local peer discovery plus manual/bootstrap peer configuration.
+- [x] Implement opt-in LAN mDNS discovery for open enrollment offers.
+- [x] Require explicit approval or denial before an enrolling peer receives the
+  current membership credential.
+- [x] Provide a manual-address enrollment fallback and post-approval initial
+  synchronization.
+- Add remote rendezvous, relay, NAT traversal, and QR pairing links.
+- Add verification phrases, enrollment rate limits, and durable audit events.
 - [x] Exchange bounded inventories and replicate missing events.
 - [x] Deduplicate replicated events using canonical identity and envelope
   digests.

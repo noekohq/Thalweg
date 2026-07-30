@@ -140,6 +140,39 @@ func TestNetworkJoinReadsInvitationFromStdin(t *testing.T) {
 	}
 }
 
+func TestNetworkInviteCommandUsesDaemonIPC(t *testing.T) {
+	socketPath := startFakeDaemon(t, func(request ipcRequest) (any, string) {
+		if request.Action != "network_invite" {
+			t.Fatalf("action = %q, want network_invite", request.Action)
+		}
+		payload := request.Payload.(map[string]any)
+		if payload["name"] != "home" {
+			t.Fatalf("payload = %#v", payload)
+		}
+		return map[string]any{
+			"membership":     map[string]any{"name": "home", "id": "network-id"},
+			"invitation":     "thalweg1:reissued",
+			"credentialMode": "shared-bearer",
+		}, ""
+	})
+	setTestConfig(t, socketPath)
+
+	var stdout, stderr bytes.Buffer
+	code := runCLI(
+		[]string{"network", "invite", "home"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"credentialMode": "shared-bearer"`) ||
+		!strings.Contains(stdout.String(), `"invitation": "thalweg1:reissued"`) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
 func TestEventIngestCommandPreservesStructuredPayload(t *testing.T) {
 	socketPath := startFakeDaemon(t, func(request ipcRequest) (any, string) {
 		if request.Action != "event_ingest" {
@@ -224,7 +257,7 @@ func TestDetachedDaemonArgsResolveConfiguration(t *testing.T) {
 		StoragePath:        "/tmp/thalweg-test-storage",
 		P2PListenAddresses: []string{"/ip4/127.0.0.1/tcp/42421", "/ip6/::1/tcp/42421"},
 	}
-	got := detachedDaemonArgs(config)
+	got := detachedDaemonArgs(config, false)
 	want := []string{
 		"daemon",
 		"--socket", config.SocketPath,
@@ -238,6 +271,18 @@ func TestDetachedDaemonArgsResolveConfiguration(t *testing.T) {
 		if arg == "-d" {
 			t.Fatal("detached child would recursively daemonize")
 		}
+	}
+}
+
+func TestDetachedDaemonArgsPropagateDebug(t *testing.T) {
+	config := localConfig{
+		SocketPath:         "/tmp/thalweg-test.sock",
+		StoragePath:        "/tmp/thalweg-test-storage",
+		P2PListenAddresses: []string{"/ip4/0.0.0.0/tcp/42422"},
+	}
+	got := detachedDaemonArgs(config, true)
+	if got[len(got)-1] != "--debug" {
+		t.Fatalf("detached debug args = %#v", got)
 	}
 }
 

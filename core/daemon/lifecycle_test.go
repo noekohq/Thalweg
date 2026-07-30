@@ -181,6 +181,13 @@ func TestStartServesAndCloseStopsDaemon(t *testing.T) {
 			currentStorageSchemaVersion,
 		)
 	}
+	addressGroups, ok := status["addressGroups"].(map[string]any)
+	if !ok {
+		t.Fatalf("addressGroups has type %T", status["addressGroups"])
+	}
+	if loopback, ok := addressGroups["loopback"].([]any); !ok || len(loopback) != 1 {
+		t.Fatalf("loopback addresses = %#v, want one address", addressGroups["loopback"])
+	}
 
 	if err := d.Close(); err != nil {
 		t.Fatalf("close daemon: %v", err)

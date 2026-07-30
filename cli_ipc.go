@@ -27,6 +27,10 @@ type ipcResponse struct {
 }
 
 func callDaemon(socketPath, action string, payload any) (json.RawMessage, error) {
+	return callDaemonTimeout(socketPath, action, payload, 45*time.Second)
+}
+
+func callDaemonTimeout(socketPath, action string, payload any, timeout time.Duration) (json.RawMessage, error) {
 	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -36,7 +40,7 @@ func callDaemon(socketPath, action string, payload any) (json.RawMessage, error)
 		)
 	}
 	defer conn.Close()
-	if err := conn.SetDeadline(time.Now().Add(45 * time.Second)); err != nil {
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
 		return nil, fmt.Errorf("set daemon request deadline: %w", err)
 	}
 

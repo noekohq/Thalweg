@@ -17,8 +17,9 @@ Read these documents before changing behavior:
 6. `docs/TESTING.md` - automated and host/VM acceptance procedure.
 7. `docs/ROADMAP.md` - implemented scope and next milestones.
 8. `docs/CLI.md` - installation and local operator workflow.
-9. `docs/CONSOLE.md` - local dashboard and multi-device test harness.
-10. `HANDOFF.md` - current implementation caveats and recommended next work.
+9. `docs/ENROLLMENT.md` - discovery, approval, and joining protocol.
+10. `docs/CONSOLE.md` - local dashboard and multi-device test harness.
+11. `HANDOFF.md` - current implementation caveats and recommended next work.
 
 ## Repository Responsibility
 
@@ -69,6 +70,8 @@ and `thalweg daemon`; see `docs/CLI.md`.
 - Empty queries serialize as `[]`.
 - Remote synchronization is inventory-first, bounded, and scoped to the
   network authenticated on that stream.
+- Invitation reissue is explicit and returns the persisted version-1 shared
+  bearer credential; it is not rotation or revocation.
 - Socket messages are newline-delimited JSON.
 - Local requests, responses, and subscription pushes carry protocol version `1`;
   absent request versions are treated as legacy version `1`.

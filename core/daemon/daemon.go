@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"sort"
@@ -23,7 +24,9 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	libp2ptcp "github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 const canonicalTimestampLayout = "2006-01-02T15:04:05.000000000Z"
@@ -94,6 +97,15 @@ type Daemon struct {
 
 	subMu         sync.RWMutex
 	subscriptions map[string]*subscription
+	debug         bool
+	logger        *slog.Logger
+
+	enrollmentMu       sync.Mutex
+	enrollmentOffers   map[string]enrollmentOffer
+	enrollmentRequests map[string]*pendingEnrollment
+	discoveryMu        sync.Mutex
+	discoveryService   io.Closer
+	discoveredPeers    map[peer.ID]peer.AddrInfo
 }
 
 type clientConn struct {
@@ -119,6 +131,7 @@ type Config struct {
 	SocketPath         string
 	DBPath             string
 	P2PListenAddresses []string
+	Debug              bool
 }
 
 func New(path string, dbPath string) (*Daemon, error) {
@@ -157,10 +170,18 @@ func NewWithConfig(config Config) (*Daemon, error) {
 		return nil, err
 	}
 
-	options := []libp2p.Option{libp2p.Identity(privateKey)}
-	if len(config.P2PListenAddresses) > 0 {
-		options = append(options, libp2p.ListenAddrStrings(config.P2PListenAddresses...))
+	options := []libp2p.Option{
+		libp2p.Identity(privateKey),
+		// Thalweg does not use TCP hole punching yet. Disabling source-port
+		// reuse also avoids same-port LAN dials on macOS failing with
+		// EHOSTUNREACH while an ordinary TCP probe succeeds.
+		libp2p.Transport(libp2ptcp.NewTCPTransport, libp2ptcp.DisableReuseport()),
 	}
+	listenAddresses := config.P2PListenAddresses
+	if len(listenAddresses) == 0 {
+		listenAddresses = []string{"/ip4/0.0.0.0/tcp/0"}
+	}
+	options = append(options, libp2p.ListenAddrStrings(listenAddresses...))
 	node, err := libp2p.New(options...)
 	if err != nil {
 		db.Close()
@@ -169,25 +190,41 @@ func NewWithConfig(config Config) (*Daemon, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &Daemon{
-		socketPath:    config.SocketPath,
-		routes:        make(map[string]HandlerFunc),
-		ctx:           ctx,
-		cancel:        cancel,
-		p2p:           node,
-		store:         db,
-		memberships:   memberships,
-		deviceID:      node.ID().String(),
-		hlc:           clock,
-		now:           time.Now,
-		clients:       make(map[net.Conn]struct{}),
-		subscriptions: make(map[string]*subscription),
+		socketPath:         config.SocketPath,
+		routes:             make(map[string]HandlerFunc),
+		ctx:                ctx,
+		cancel:             cancel,
+		p2p:                node,
+		store:              db,
+		memberships:        memberships,
+		deviceID:           node.ID().String(),
+		hlc:                clock,
+		now:                time.Now,
+		clients:            make(map[net.Conn]struct{}),
+		subscriptions:      make(map[string]*subscription),
+		enrollmentOffers:   make(map[string]enrollmentOffer),
+		enrollmentRequests: make(map[string]*pendingEnrollment),
+		discoveredPeers:    make(map[peer.ID]peer.AddrInfo),
+		debug:              config.Debug,
+		logger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		})),
 	}
 
 	d.p2p.SetStreamHandler("/thalweg/1.0.0", d.handleP2PStream)
 	d.p2p.SetStreamHandler(meshProtocolID, d.handleMeshStream)
+	d.p2p.SetStreamHandler(enrollmentProtocolID, d.handleEnrollmentStream)
 	d.registerRoutes()
 
 	return d, nil
+}
+
+func (d *Daemon) trace(enabled bool, stage, message string, args ...any) {
+	if d == nil || (!d.debug && !enabled) || d.logger == nil {
+		return
+	}
+	args = append([]any{"stage", stage, "peerId", d.deviceID}, args...)
+	d.logger.Debug(message, args...)
 }
 
 func (d *Daemon) Register(action string, handler HandlerFunc) {
@@ -285,6 +322,15 @@ func (d *Daemon) Close() error {
 			}
 		}
 		if d.p2p != nil {
+			d.discoveryMu.Lock()
+			discovery := d.discoveryService
+			d.discoveryService = nil
+			d.discoveryMu.Unlock()
+			if discovery != nil {
+				if err := discovery.Close(); err != nil {
+					errs = append(errs, fmt.Errorf("close LAN discovery: %w", err))
+				}
+			}
 			if err := d.p2p.Close(); err != nil {
 				errs = append(errs, fmt.Errorf("close libp2p host: %w", err))
 			}
@@ -381,15 +427,15 @@ func (d *Daemon) Handle(conn net.Conn) {
 }
 
 func (d *Daemon) registerRoutes() {
+	d.registerEnrollmentRoutes()
+
 	d.Register("network_status", func(_ *clientConn, _ json.RawMessage) (any, error) {
-		var addrs []string
-		for _, addr := range d.p2p.Addrs() {
-			addrs = append(addrs, fmt.Sprintf("%s/p2p/%s", addr, d.p2p.ID()))
-		}
+		addrs := d.peerAddresses()
 		return map[string]any{
 			"peerId":                d.p2p.ID().String(),
 			"deviceId":              d.deviceID,
 			"addresses":             addrs,
+			"addressGroups":         groupPeerAddresses(addrs),
 			"daemonVersion":         daemonVersion,
 			"protocolVersion":       currentLocalProtocolVersion,
 			"storageSchemaVersion":  currentStorageSchemaVersion,
@@ -429,6 +475,24 @@ func (d *Daemon) registerRoutes() {
 		return map[string]any{
 			"membership": membership,
 			"joined":     joined,
+		}, nil
+	})
+
+	d.Register("network_invite", func(_ *clientConn, payload json.RawMessage) (any, error) {
+		var args struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(payload, &args); err != nil {
+			return nil, err
+		}
+		membership, invitation, err := d.memberships.invite(args.Name)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"membership":     membership,
+			"invitation":     invitation,
+			"credentialMode": "shared-bearer",
 		}, nil
 	})
 
@@ -536,6 +600,7 @@ func (d *Daemon) registerRoutes() {
 			TargetAddr       string `json:"targetAddr"`
 			LegacyTargetAddr string `json:"target_addr"`
 			Network          string `json:"network"`
+			Debug            bool   `json:"debug"`
 		}
 		if err := json.Unmarshal(payload, &args); err != nil {
 			return nil, err
@@ -559,9 +624,15 @@ func (d *Daemon) registerRoutes() {
 		}
 		ctx, cancel := context.WithTimeout(d.ctx, 10*time.Second)
 		defer cancel()
+		probe := d.debugTCPProbe(args.TargetAddr, args.Debug)
+		d.trace(args.Debug, "mesh.connect", "starting libp2p connect", "network", args.Network, "target", args.TargetAddr, "tcpProbe", probe)
 		if err := d.p2p.Connect(ctx, *info); err != nil {
+			if args.Debug {
+				return nil, fmt.Errorf("failed to connect to peer: %w (debug: %s; tcp source-port reuse disabled)", err, probe)
+			}
 			return nil, fmt.Errorf("connect to mesh peer: %w", err)
 		}
+		d.trace(args.Debug, "mesh.authenticate", "TCP/libp2p connection established", "remotePeerId", info.ID.String())
 		if err := d.authenticatePeer(ctx, info.ID, args.Network); err != nil {
 			return nil, fmt.Errorf("authenticate mesh peer: %w", err)
 		}
@@ -581,6 +652,7 @@ func (d *Daemon) registerRoutes() {
 			TargetAddr       string `json:"targetAddr"`
 			LegacyTargetAddr string `json:"target_addr"`
 			Network          string `json:"network"`
+			Debug            bool   `json:"debug"`
 		}
 		if err := json.Unmarshal(payload, &args); err != nil {
 			return nil, err
@@ -604,9 +676,15 @@ func (d *Daemon) registerRoutes() {
 		}
 		ctx, cancel := context.WithTimeout(d.ctx, syncTimeout)
 		defer cancel()
+		probe := d.debugTCPProbe(args.TargetAddr, args.Debug)
+		d.trace(args.Debug, "mesh.connect", "starting libp2p sync connection", "network", args.Network, "target", args.TargetAddr, "tcpProbe", probe)
 		if err := d.p2p.Connect(ctx, *info); err != nil {
+			if args.Debug {
+				return nil, fmt.Errorf("failed to connect to peer: %w (debug: %s; tcp source-port reuse disabled)", err, probe)
+			}
 			return nil, fmt.Errorf("connect to mesh peer: %w", err)
 		}
+		d.trace(args.Debug, "mesh.sync", "libp2p connection established; starting authenticated sync", "remotePeerId", info.ID.String())
 		result, err := d.synchronizePeer(ctx, info.ID, args.Network)
 		if err != nil {
 			return nil, fmt.Errorf("synchronize mesh peer: %w", err)
@@ -616,6 +694,66 @@ func (d *Daemon) registerRoutes() {
 		}
 		return result, nil
 	})
+}
+
+func groupPeerAddresses(addresses []string) map[string][]string {
+	groups := map[string][]string{
+		"loopback": {},
+		"lan":      {},
+		"public":   {},
+		"other":    {},
+	}
+	for _, address := range addresses {
+		scope := "other"
+		maddr, err := multiaddr.NewMultiaddr(address)
+		if err == nil {
+			var ip net.IP
+			if value, valueErr := maddr.ValueForProtocol(multiaddr.P_IP4); valueErr == nil {
+				ip = net.ParseIP(value)
+			} else if value, valueErr := maddr.ValueForProtocol(multiaddr.P_IP6); valueErr == nil {
+				ip = net.ParseIP(value)
+			}
+			switch {
+			case ip != nil && ip.IsLoopback():
+				scope = "loopback"
+			case ip != nil && (ip.IsPrivate() || ip.IsLinkLocalUnicast()):
+				scope = "lan"
+			case ip != nil && ip.IsGlobalUnicast():
+				scope = "public"
+			}
+		}
+		groups[scope] = append(groups[scope], address)
+	}
+	for scope := range groups {
+		sort.Strings(groups[scope])
+	}
+	return groups
+}
+
+func (d *Daemon) debugTCPProbe(target string, enabled bool) string {
+	if !enabled && !d.debug {
+		return "not requested"
+	}
+	address, err := multiaddr.NewMultiaddr(target)
+	if err != nil {
+		return "invalid multiaddress: " + err.Error()
+	}
+	info, err := peer.AddrInfoFromP2pAddr(address)
+	if err != nil || len(info.Addrs) == 0 {
+		return "cannot extract peer TCP address"
+	}
+	networkName, endpoint, err := manet.DialArgs(info.Addrs[0])
+	if err != nil {
+		return "cannot derive TCP endpoint: " + err.Error()
+	}
+	conn, err := net.DialTimeout(networkName, endpoint, 2*time.Second)
+	if err != nil {
+		return fmt.Sprintf("raw %s dial to %s failed: %v", networkName, endpoint, err)
+	}
+	local := conn.LocalAddr().String()
+	remote := conn.RemoteAddr().String()
+	_ = conn.Close()
+	return fmt.Sprintf("raw %s dial succeeded (%s -> %s)", networkName, local, remote)
 }
 
 func (d *Daemon) ingest(networkName, stream, occurredAt, eventID string, payload json.RawMessage) (ThalwegEvent, error) {

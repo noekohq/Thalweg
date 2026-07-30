@@ -116,6 +116,12 @@ Payload may be `{}`. Returns:
   "peerId": "12D3...",
   "deviceId": "12D3...",
   "addresses": ["/ip4/127.0.0.1/tcp/1234/p2p/12D3..."],
+  "addressGroups": {
+    "loopback": ["/ip4/127.0.0.1/tcp/1234/p2p/12D3..."],
+    "lan": [],
+    "public": [],
+    "other": []
+  },
   "daemonVersion": "0.1.0-dev",
   "protocolVersion": 1,
   "storageSchemaVersion": 3,
@@ -125,7 +131,10 @@ Payload may be `{}`. Returns:
 ```
 
 `protocolVersion` advertises the local IPC shape for diagnostics and matches the
-version carried by local messages.
+version carried by local messages. `addresses` remains the complete,
+backward-compatible list. `addressGroups` classifies each address by likely
+reachability so an operator can select a LAN or public manual fallback rather
+than a loopback address.
 
 ### `network_create`
 
@@ -160,10 +169,55 @@ Returns the redacted membership plus `joined: true`. Joining the same invitation
 again is idempotent and returns `joined: false`. Different credentials under an
 already-mounted name are rejected.
 
+### `network_invite`
+
+Payload:
+
+```json
+{"name":"home"}
+```
+
+Explicitly reissues an invitation for an already-mounted network:
+
+```json
+{
+  "membership":{"name":"home","id":"PUBLIC_BASE64URL_ID"},
+  "invitation":"thalweg1:...",
+  "credentialMode":"shared-bearer"
+}
+```
+
+This action is intentionally separate from redacted network listing. In
+membership protocol version `1`, it deterministically re-encodes the persisted
+shared network secret; it does not create a new, expiring, one-time, or
+revocable enrollment credential. The invitation must be handled as a secret.
+An unknown network name is rejected.
+
 ### `network_list`
 
 Payload may be `{}`. Returns mounted `{name, id}` records sorted by name.
 Membership secrets and invitations are never returned.
+
+### Enrollment actions
+
+Enrollment actions back the approval-based `network listen` / `join` flow. See
+`docs/ENROLLMENT.md` for the remote protocol and security boundary.
+
+- `enrollment_listen`: `{network, durationSeconds, debug?}` opens a time-bounded
+  offer and returns `{offer, addresses}`.
+- `enrollment_close`: `{offerId}` closes an offer.
+- `enrollment_requests`: `{network}` returns pending redacted request records.
+- `enrollment_approve`: `{requestId}` approves one pending request.
+- `enrollment_deny`: `{requestId}` denies one pending request.
+- `enrollment_discover`: `{targetAddr?, waitMillis?, debug?}` scans mDNS or
+  queries one manual peer and returns enrollment candidates.
+- `enrollment_join`: `{targetAddr, offerId, deviceName, debug?}` waits for the
+  remote decision, mounts approved membership, synchronizes, and persists the
+  peer.
+
+No discovery or pending-request response contains membership secrets.
+`enrollment_join` does not return the invitation; only the mounted redacted
+membership and synchronization result reach the local client.
 
 ### `p2p_dial`
 

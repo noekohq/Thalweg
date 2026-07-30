@@ -80,6 +80,10 @@ The current daemon:
   transfers missing envelopes bidirectionally.
 - Provides per-user initialization and native provisioning, event inspection,
   and authenticated peer commands over the documented local IPC contract.
+- Provides opt-in LAN mDNS discovery, time-bounded enrollment offers, explicit
+  approval/denial, and post-approval initial synchronization.
+- Disables TCP source-port reuse until hole punching is implemented, avoiding
+  same-port macOS LAN dial failures.
 
 Replication currently runs on explicit `mesh_sync` and when a persisted peer is
 restored at startup. There is no continuous live fanout or periodic background

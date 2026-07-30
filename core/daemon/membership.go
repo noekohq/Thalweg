@@ -162,6 +162,23 @@ func (s *membershipStore) join(invitation string) (NetworkMembershipInfo, bool, 
 	return membership.info(), true, nil
 }
 
+func (s *membershipStore) invite(name string) (NetworkMembershipInfo, string, error) {
+	if err := validateNetworkName(name); err != nil {
+		return NetworkMembershipInfo{}, "", err
+	}
+	s.mu.RLock()
+	membership, exists := s.memberships[name]
+	s.mu.RUnlock()
+	if !exists {
+		return NetworkMembershipInfo{}, "", fmt.Errorf("network %q is not mounted", name)
+	}
+	invitation, err := encodeNetworkInvitation(membership)
+	if err != nil {
+		return NetworkMembershipInfo{}, "", err
+	}
+	return membership.info(), invitation, nil
+}
+
 func (s *membershipStore) get(name string) (networkMembership, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

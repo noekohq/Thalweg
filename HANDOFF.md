@@ -19,11 +19,14 @@ Important entry points:
 - `cli_ipc.go`: bounded local CLI request/response client.
 - `scripts/install.sh`: local source-checkout installer.
 - `docs/CLI.md`: install and two-device operator workflow.
+- `docs/ENROLLMENT.md`: discovery/enrollment state machine and limitations.
 - `core/daemon/daemon.go`: IPC, events, storage, subscriptions, and p2p scaffold.
 - `core/daemon/hlc.go`: persistent HLC tick and remote merge rules.
 - `core/daemon/identity.go`: restart-stable libp2p identity and socket safety.
 - `core/daemon/membership.go`: multi-network credentials and invitations.
 - `core/daemon/mesh.go`: bounded peer-ID-bound membership handshake.
+- `core/daemon/enrollment.go`: mDNS discovery, time-bounded offers, pending
+  approval, credential delivery, and initial sync.
 - `core/daemon/sync.go`: inventory/digest comparison and event transfer.
 - `core/daemon/version.go`: daemon/protocol constants and storage compatibility.
 - `core/daemon/daemon_test.go`: current automated coverage.
@@ -79,6 +82,14 @@ creates one `insights:summary` event, and all four print chronologically.
 - `thalweg daemon -d` detaches, verifies socket readiness, and redirects to a
   restricted log, but the installer does not yet register a supervised login
   service, manage upgrades, or uninstall Thalweg.
+- `network_invite` and `thalweg network invite` reissue the persisted
+  version-1 shared-bearer credential. They do not rotate it or create expiring
+  enrollment grants.
+- Approval-based enrollment avoids exposing that credential before a local
+  operator approves the authenticated requesting peer, but approved devices
+  still receive the same version-1 shared secret.
+- TCP source-port reuse is disabled. Re-enable it only with tested hole
+  punching and same-port macOS acceptance coverage.
 - `data/event.proto` is reserved but currently empty.
 - `test.go` is a standalone historical libp2p experiment.
 

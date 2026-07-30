@@ -14,7 +14,8 @@ go vet ./...
 
 The root-package suite includes config permission/idempotency tests and fake
 Unix-socket integration tests for native CLI provisioning, event ingestion,
-network invitation input, mesh synchronization, and daemon error propagation.
+network invitation input/reissue, mesh synchronization, and daemon error
+propagation.
 
 Installer smoke test:
 
@@ -43,6 +44,14 @@ The synchronization suite covers:
 - Oversized page rejection without partial delivery.
 - Explicit cross-network frame rejection.
 - Home/work isolation on the same physical pair.
+
+The enrollment suite covers:
+
+- Active offers visible through a manual peer query.
+- Expired offers omitted.
+- Denial without mounting credentials.
+- Approval followed by credential mounting and authenticated initial sync.
+- Explicit shared-secret transfer only after approval.
 
 Run from `thalweg-js`:
 

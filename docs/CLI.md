@@ -86,6 +86,11 @@ mode `0600`. Select another path with:
 thalweg daemon -d --log /path/to/thalweg.log
 ```
 
+Add `--debug` in either foreground or detached mode to emit structured
+connection, discovery, enrollment, authentication, and synchronization traces.
+`thalweg status` preserves the complete flat `addresses` list and also reports
+`addressGroups` with `loopback`, `lan`, `public`, and `other` buckets.
+
 This is process detachment, not full service supervision: automatic login
 startup, restart-on-failure, upgrades, and uninstallation are still deferred.
 Use the printed PID with `kill PID` for a graceful SIGTERM shutdown.
@@ -106,6 +111,19 @@ The JSON response includes a redacted membership and an invitation. The
 invitation is a bearer credential. Transfer it privately and avoid placing it
 directly in shell history.
 
+There is no need to archive that output. Reissue it explicitly from any
+currently joined device:
+
+```bash
+thalweg network invite home
+```
+
+The result includes `credentialMode: "shared-bearer"`. In the current
+membership protocol this is the same persistent network credential, not a new
+expiring or revocable token. Reissuing should therefore be deliberate, and a
+suspected disclosure still requires future credential-rotation support rather
+than simply running the command again.
+
 On another initialized device:
 
 ```bash
@@ -124,6 +142,38 @@ List mounted networks:
 ```bash
 thalweg network list
 ```
+
+## Approval-based joining
+
+On an existing member:
+
+```bash
+thalweg network listen home --duration 10m
+```
+
+The command opens LAN discovery, prints manual fallback commands, displays
+incoming peer identities, and asks `Allow? [y/N]`. It closes on timeout or
+Ctrl-C.
+
+On a new initialized node:
+
+```bash
+thalweg join
+```
+
+The daemon scans mDNS, lists active offers, requests approval, mounts the
+credential only after approval, and performs the initial sync. When discovery
+cannot cross a VPN, routed network, or the internet:
+
+```bash
+thalweg join --address /ip4/192.168.1.20/tcp/42422/p2p/12D3...
+```
+
+Add `--debug` to joining, peer dial, or peer sync for transport-stage details.
+Start the daemon with `--debug` for persistent structured logs.
+On macOS, an empty mDNS scan may require enabling Local Network access for the
+terminal application. The listener's explicit `thalweg join --address ...`
+command remains the fallback when multicast discovery is unavailable.
 
 ## Events
 
@@ -212,7 +262,10 @@ thalweg init
 thalweg daemon [-d] [--log PATH]
 thalweg status
 thalweg network create NAME
+thalweg network invite NAME
+thalweg network listen NAME
 thalweg network join [INVITATION]
+thalweg join [--address MULTIADDR] [--debug]
 thalweg network list
 thalweg event ingest --network NAME --stream NAME --payload JSON
 thalweg event query --network NAME

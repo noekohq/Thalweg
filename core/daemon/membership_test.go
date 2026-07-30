@@ -90,6 +90,100 @@ func TestMembershipRejectsConflictingName(t *testing.T) {
 	}
 }
 
+func TestMembershipReissuesInvitationWithoutMutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), membershipFileName)
+	store, err := loadMembershipStore(path)
+	if err != nil {
+		t.Fatalf("load membership store: %v", err)
+	}
+	created, original, err := store.create("home")
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read membership file before invite: %v", err)
+	}
+
+	membership, reissued, err := store.invite("home")
+	if err != nil {
+		t.Fatalf("reissue invitation: %v", err)
+	}
+	if membership != created {
+		t.Fatalf("reissued membership = %#v, want %#v", membership, created)
+	}
+	if reissued != original {
+		t.Fatalf("reissued invitation differs from persisted shared credential")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read membership file after invite: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("reissuing an invitation mutated the membership file")
+	}
+
+	restarted, err := loadMembershipStore(path)
+	if err != nil {
+		t.Fatalf("restart membership store: %v", err)
+	}
+	_, afterRestart, err := restarted.invite("home")
+	if err != nil {
+		t.Fatalf("reissue invitation after restart: %v", err)
+	}
+	if afterRestart != original {
+		t.Fatal("invitation changed after restart")
+	}
+}
+
+func TestMembershipInviteRejectsUnknownNetwork(t *testing.T) {
+	store, err := loadMembershipStore(filepath.Join(t.TempDir(), membershipFileName))
+	if err != nil {
+		t.Fatalf("load membership store: %v", err)
+	}
+	if _, _, err := store.invite("missing"); err == nil ||
+		!strings.Contains(err.Error(), `network "missing" is not mounted`) {
+		t.Fatalf("unexpected unknown network error: %v", err)
+	}
+}
+
+func TestNetworkInviteRouteReturnsExplicitSharedBearerMode(t *testing.T) {
+	memberships, err := loadMembershipStore(filepath.Join(t.TempDir(), membershipFileName))
+	if err != nil {
+		t.Fatalf("load membership store: %v", err)
+	}
+	d := &Daemon{
+		memberships: memberships,
+		routes:      make(map[string]HandlerFunc),
+	}
+	d.registerRoutes()
+	created, original, err := memberships.create("home")
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	handler, exists := d.routes["network_invite"]
+	if !exists {
+		t.Fatal("network_invite route is not registered")
+	}
+	data, err := handler(nil, json.RawMessage(`{"name":"home"}`))
+	if err != nil {
+		t.Fatalf("invoke network_invite route: %v", err)
+	}
+	result, ok := data.(map[string]any)
+	if !ok {
+		t.Fatalf("network_invite result has type %T", data)
+	}
+	if result["membership"] != created {
+		t.Fatalf("membership = %#v, want %#v", result["membership"], created)
+	}
+	if result["invitation"] != original {
+		t.Fatal("route did not return the persisted shared invitation")
+	}
+	if result["credentialMode"] != "shared-bearer" {
+		t.Fatalf("credentialMode = %#v", result["credentialMode"])
+	}
+}
+
 func TestMembershipFileSafetyAndCompatibility(t *testing.T) {
 	t.Run("insecure permissions", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), membershipFileName)

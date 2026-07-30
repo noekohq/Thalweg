@@ -56,6 +56,7 @@ Provision and inspect it from another without an SDK script:
 ```bash
 thalweg status
 thalweg network create home
+thalweg network invite home
 thalweg network list
 thalweg event ingest \
   --network home \
@@ -73,7 +74,23 @@ thalweg peer sync \
   --address /ip4/192.168.1.20/tcp/42422/p2p/PEER_ID
 ```
 
+The preferred approval-based LAN flow avoids copying invitations:
+
+```bash
+# Existing member
+thalweg network listen home
+
+# Joining device
+thalweg join
+```
+
+Use `thalweg join --address MULTIADDR` when multicast discovery is unavailable.
+See [Discovery and enrollment](docs/ENROLLMENT.md).
+
 Invitations are bearer credentials and should not be stored in shell history.
+They can be explicitly reissued from a mounted membership with
+`thalweg network invite NAME`; protocol version 1 reissues the same shared
+credential rather than creating a revocable token.
 See [CLI and local installation](docs/CLI.md) for all commands and the
 two-device workflow.
 
@@ -132,6 +149,7 @@ window recomputation.
 - [Remote mesh protocol](docs/MESH_PROTOCOL.md)
 - [Testing and Lima acceptance](docs/TESTING.md)
 - [CLI and local installation](docs/CLI.md)
+- [Discovery and enrollment](docs/ENROLLMENT.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Console and Mesh Lab specification](docs/CONSOLE.md)
 - [Agent guide](AGENTS.md)

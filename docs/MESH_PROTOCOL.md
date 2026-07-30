@@ -24,6 +24,11 @@ credential and invitation version `1`. Invitations are bearer credentials:
 anyone who obtains one can authenticate as a member. Rotation, revocation,
 expiry, and network leave are not implemented yet.
 
+The local `network_invite` action may reissue an invitation from a mounted
+membership so operators do not need to archive invitation strings. In version
+`1`, reissuing returns the same underlying shared credential and is not a
+security rotation or newly scoped grant.
+
 ## Handshake
 
 The initiator sends a newline-delimited `hello` containing protocol version `1`,
@@ -106,3 +111,11 @@ and transfers only events still missing.
 - IDs inserted lexically before an active cursor wait until the next session.
 - There is no live fanout, rate limiting, peer-health model, or periodic
   background retry beyond startup restoration.
+
+## Enrollment
+
+Prospective members cannot use this authenticated mesh protocol. The separate
+`/thalweg/enrollment/1.0.0` protocol discovers time-bounded offers and waits for
+explicit approval before transferring a membership credential. Once mounted,
+the joining daemon returns to this mesh protocol for its initial sync. See
+`ENROLLMENT.md`.
