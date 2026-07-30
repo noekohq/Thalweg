@@ -1,0 +1,122 @@
+# Testing and Lima Acceptance
+
+Last exercised: 2026-07-30
+
+## Automated Verification
+
+Run from the daemon repository:
+
+```bash
+go test -race ./...
+go test -count=10 ./core/daemon
+go vet ./...
+```
+
+The root-package suite includes config permission/idempotency tests and fake
+Unix-socket integration tests for native CLI provisioning, event ingestion,
+network invitation input, mesh synchronization, and daemon error propagation.
+
+Installer smoke test:
+
+```bash
+THALWEG_INSTALL_DIR="$(mktemp -d)" ./scripts/install.sh
+```
+
+Short fuzz campaigns:
+
+```bash
+go test ./core/daemon -run '^$' \
+  -fuzz '^FuzzDecodeNetworkInvitation$' -fuzztime=3s
+go test ./core/daemon -run '^$' \
+  -fuzz '^FuzzReadBoundedSyncFrame$' -fuzztime=3s
+go test ./core/daemon -run '^$' \
+  -fuzz '^FuzzNormalizeReplicatedEvent$' -fuzztime=3s
+```
+
+The synchronization suite covers:
+
+- Multiple inventory pages in both directions.
+- Exact replay without event retransmission.
+- Same-ID/different-envelope conflict detection.
+- Interrupted partial delivery followed by convergence.
+- Simultaneous sessions initiated by both peers.
+- Oversized page rejection without partial delivery.
+- Explicit cross-network frame rejection.
+- Home/work isolation on the same physical pair.
+
+Run from `thalweg-js`:
+
+```bash
+bun run build
+bun test --rerun-each 10
+```
+
+## Host/VM Topology
+
+The acceptance run used:
+
+- macOS ARM64 host.
+- Linux ARM64 Lima `playground` guest.
+- Independent filesystems, identities, Badger databases, clocks, Unix sockets,
+  kernels, and process lifecycles.
+- Lima TCP forwarding from guest listeners to host localhost.
+
+Build binaries:
+
+```bash
+go build -o /tmp/thalweg-darwin-arm64 .
+env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+  go build -o /tmp/thalweg-linux-arm64 .
+limactl copy /tmp/thalweg-linux-arm64 \
+  playground:/tmp/thalweg-linux-arm64
+```
+
+Use stable distinct ports. The guest listener is forwarded to the same host
+localhost port by Lima:
+
+```bash
+/tmp/thalweg-darwin-arm64 spawn \
+  --storage /tmp/thalweg-host/storage/badger \
+  --socket /tmp/thalweg-host.sock \
+  --p2p-listen /ip4/127.0.0.1/tcp/42421
+
+limactl shell playground -- \
+  /tmp/thalweg-linux-arm64 spawn \
+  --storage /tmp/thalweg-vm/storage/badger \
+  --socket /tmp/thalweg-vm.sock \
+  --p2p-listen /ip4/0.0.0.0/tcp/42422
+```
+
+Create a dedicated lab membership on one daemon, join its invitation on the
+other, and ingest distinct IDs on both. From the host, call `mesh_sync` with:
+
+```text
+/ip4/127.0.0.1/tcp/42422/p2p/{guestPeerId}
+```
+
+## Acceptance Results
+
+The host/VM run verified:
+
+- Three host and two guest events converged to the same five-event history with
+  preserved origin identities.
+- A second sync transferred zero events.
+- Host and guest identities survived restarts.
+- A guest event created while the host was offline arrived automatically when
+  the host restarted and restored its peer.
+- A host-only network event never appeared in the guest.
+- The guest rejected a synchronization attempt for a network it had not joined.
+- Stable configured ports allowed persisted-peer restoration.
+
+The VM run found and drove fixes for:
+
+1. Empty queries encoded as `null`; they now encode as `[]`.
+2. Random libp2p ports made persisted addresses stale; socket, storage, and p2p
+   listen addresses are now configurable.
+
+## Environmental Detail
+
+The Lima guest address (`192.168.5.x` in this run) was not directly routable
+from the host. Its TCP listener was reachable through Lima localhost
+forwarding. Setup tooling should distinguish advertised guest addresses from
+host-reachable forwarded addresses.

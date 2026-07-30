@@ -24,6 +24,11 @@ Keeping these separate is a supported project structure, not a temporary
 failure to create a monorepo. Cross-repository contracts must therefore be
 documented and versioned carefully.
 
+The Go repository also owns a thin operator CLI. Its `network`, `event`,
+`peer`, and `status` commands use the public local IPC contract rather than
+opening storage directly. This keeps manual provisioning behavior aligned with
+the SDK while allowing a node to be installed and operated without JavaScript.
+
 ## Intended Data Flow
 
 ```text
@@ -56,15 +61,29 @@ Go daemon -----> BadgerDB chronological event store
 
 The current daemon:
 
-- Creates one libp2p host and one BadgerDB instance.
+- Creates one restart-stable libp2p host and one BadgerDB instance.
 - Accepts newline-delimited JSON over a Unix domain socket.
 - Stores immutable events with three timestamps.
 - Queries one or more streams and sorts the merged results chronologically.
 - Pushes newly ingested events to matching in-memory subscriptions.
 - Persists manually dialed peer addresses and attempts to reconnect at startup.
+- Handles interrupt/termination signals and closes clients, storage, the host,
+  and its owned Unix socket.
+- Persists storage schema version `3` and exposes daemon, local protocol, and
+  storage versions through network status.
+- Persists a Hybrid Logical Clock and assigns `(insertedAt, counter)` atomically
+  with each locally ingested event.
+- Uses a network/event-ID secondary index for idempotent ingestion.
+- Provides an internal replicated-event receive boundary that preserves origin
+  envelopes and atomically stores the event/index while merging the remote HLC.
+- Exchanges bounded ID/digest inventories after network authentication and
+  transfers missing envelopes bidirectionally.
+- Provides per-user initialization and native provisioning, event inspection,
+  and authenticated peer commands over the documented local IPC contract.
 
-The current daemon does not replicate events between peers. Its p2p stream
-handler only logs received text.
+Replication currently runs on explicit `mesh_sync` and when a persisted peer is
+restored at startup. There is no continuous live fanout or periodic background
+retry. The legacy p2p stream still only logs text.
 
 ## Target Topology
 
@@ -77,9 +96,10 @@ The target system is a set of autonomous daemons on asymmetric hardware:
 - Compute-capable nodes can claim scheduled processing windows.
 - Late arrivals mark completed windows dirty and cause idempotent reprocessing.
 
-Each logical network is intended to have independent storage and cryptographic
-membership. The current `network` string is only a logical filter and does not
-yet provide physical or cryptographic isolation.
+Each mounted logical network now has independent membership credentials and a
+stable public network ID. A physical device can mount several credentials in
+`storage/memberships.json`. Local events still use the membership name as their
+namespace, and all networks currently share one Badger database.
 
 ## Core Concepts
 
@@ -112,7 +132,8 @@ lookback queries. Scheduling and dirty-window replay are not implemented.
 
 ## Trust Boundaries
 
-Local IPC and remote p2p traffic must not share authorization assumptions.
-Future p2p handlers should validate network membership, event identity,
-deduplication, size limits, and protocol versions before touching storage.
-
+Local IPC and remote p2p traffic do not share authorization assumptions. The
+remote `/thalweg/mesh/1.0.0` handshake mutually proves one network credential
+using peer-ID-bound HMAC challenges and bounded frames before synchronization
+may touch storage. Every sync message and event is checked against that
+authenticated network.

@@ -13,8 +13,29 @@ The companion SDK is https://github.com/noekohq/thalweg-js.
 Important entry points:
 
 - `main.go`: CLI and daemon startup.
+- `cli.go`: native initialization, provisioning, event, peer, and status
+  commands.
+- `cli_config.go`: per-user config resolution and restricted atomic writes.
+- `cli_ipc.go`: bounded local CLI request/response client.
+- `scripts/install.sh`: local source-checkout installer.
+- `docs/CLI.md`: install and two-device operator workflow.
 - `core/daemon/daemon.go`: IPC, events, storage, subscriptions, and p2p scaffold.
+- `core/daemon/hlc.go`: persistent HLC tick and remote merge rules.
+- `core/daemon/identity.go`: restart-stable libp2p identity and socket safety.
+- `core/daemon/membership.go`: multi-network credentials and invitations.
+- `core/daemon/mesh.go`: bounded peer-ID-bound membership handshake.
+- `core/daemon/sync.go`: inventory/digest comparison and event transfer.
+- `core/daemon/version.go`: daemon/protocol constants and storage compatibility.
 - `core/daemon/daemon_test.go`: current automated coverage.
+- `core/daemon/lifecycle_test.go`: identity, restart, and socket lifecycle tests.
+- `core/daemon/hlc_test.go`: local ticks, restart, wall regression, and merge tests.
+- `core/daemon/membership_test.go`: credential persistence and file safety.
+- `core/daemon/mesh_test.go`: live multi-network authorization and framing.
+- `core/daemon/replication_test.go`: atomic replicated-envelope receive tests.
+- `core/daemon/sync_test.go`: convergence, conflicts, interruption, concurrency,
+  bounds, and isolation.
+- `core/daemon/fuzz_test.go`: parser, framing, and envelope fuzz targets.
+- `core/daemon/version_test.go`: storage schema and compatibility tests.
 - `docs/PROTOCOL.md`: contract consumed by the SDK.
 
 ## Verify
@@ -22,6 +43,14 @@ Important entry points:
 ```bash
 go test ./...
 go run . spawn
+```
+
+The installed workflow is:
+
+```bash
+./scripts/install.sh
+thalweg init
+thalweg daemon
 ```
 
 With the daemon running, use the companion repository:
@@ -35,24 +64,32 @@ creates one `insights:summary` event, and all four print chronologically.
 
 ## Known Technical Debt
 
-- Device identity changes on every restart.
-- The ordering counter is not persisted and is not a real HLC.
-- Timestamp strings are compared lexically without canonical normalization.
-- Event IDs are not enforced as globally idempotent.
+- Authenticated synchronization invokes the atomic replicated-event ingest
+  path, but inventory construction still scans full network history in memory.
+- Local ingestion is serialized while advancing the persistent HLC; this may
+  become a throughput bottleneck under high-volume concurrent producers.
 - Multi-stream queries sort decoded events in memory.
 - Subscriptions are future-only, in-memory, and have no backpressure.
-- Daemon shutdown is not graceful or signal-aware.
-- The socket has no explicit access-control setup or protocol version.
-- P2P streams log text but do not authenticate or synchronize events.
+- Requests without `protocolVersion` are accepted as legacy version `1`; there
+  is no handshake or feature-level negotiation.
+- The legacy p2p stream only logs text; the mesh stream authenticates and
+  synchronizes one network at a time.
+- Persisted peer restoration requires a stable configured address until
+  discovery exists.
+- `thalweg daemon -d` detaches, verifies socket readiness, and redirects to a
+  restricted log, but the installer does not yet register a supervised login
+  service, manage upgrades, or uninstall Thalweg.
 - `data/event.proto` is reserved but currently empty.
 - `test.go` is a standalone historical libp2p experiment.
 
 ## Recommended Next Work
 
-Start with the "Restart-Safe Local Timeline" milestone in
-`docs/ROADMAP.md`. Persistent identity and correct clock behavior are the
-foundation for every synchronization feature. Do not begin GossipSub/event
-replication while event identity and ordering remain process-local.
+Continue the "Trustworthy Local Timeline" milestone in `docs/ROADMAP.md`.
+Persistent identity, graceful lifecycle, canonical timestamps, idempotent event
+behavior, persistent HLC, local message versioning, atomic replicated-event
+receive, authenticated multi-network membership, and bounded bidirectional sync
+are implemented. Next work is durable incremental sync progress,
+discovery/background retry, live fanout, and the Console/Mesh Lab.
 
 Any wire change must be mirrored in `noekohq/thalweg-js` and documented in both
 repositories.

@@ -2,11 +2,15 @@ package daemon
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"sort"
@@ -22,23 +26,28 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
+const canonicalTimestampLayout = "2006-01-02T15:04:05.000000000Z"
+
 type Message struct {
-	ID      string          `json:"id,omitempty"`
-	Action  string          `json:"action"`
-	Payload json.RawMessage `json:"payload"`
+	ID              string          `json:"id,omitempty"`
+	ProtocolVersion int             `json:"protocolVersion,omitempty"`
+	Action          string          `json:"action"`
+	Payload         json.RawMessage `json:"payload"`
 }
 
 type Response struct {
-	ID      string `json:"id,omitempty"`
-	Success bool   `json:"success"`
-	Data    any    `json:"data,omitempty"`
-	Error   string `json:"error,omitempty"`
+	ID              string `json:"id,omitempty"`
+	ProtocolVersion int    `json:"protocolVersion"`
+	Success         bool   `json:"success"`
+	Data            any    `json:"data,omitempty"`
+	Error           string `json:"error,omitempty"`
 }
 
 type StreamMessage struct {
-	Type           string       `json:"type"`
-	SubscriptionID string       `json:"subscriptionId"`
-	Event          ThalwegEvent `json:"event"`
+	Type            string       `json:"type"`
+	ProtocolVersion int          `json:"protocolVersion"`
+	SubscriptionID  string       `json:"subscriptionId"`
+	Event           ThalwegEvent `json:"event"`
 }
 
 type HandlerFunc func(conn *clientConn, payload json.RawMessage) (any, error)
@@ -56,16 +65,32 @@ type ThalwegEvent struct {
 }
 
 type Daemon struct {
-	socketPath string
-	ctx        context.Context
-	p2p        host.Host
-	store      *badger.DB
-	routes     map[string]HandlerFunc
+	socketPath  string
+	ctx         context.Context
+	cancel      context.CancelFunc
+	p2p         host.Host
+	store       *badger.DB
+	memberships *membershipStore
+	routes      map[string]HandlerFunc
+
+	lifecycleMu sync.Mutex
+	listener    net.Listener
+	ownsSocket  bool
+	started     bool
+	closed      bool
+	closeOnce   sync.Once
+	closeErr    error
+
+	clientMu      sync.Mutex
+	clients       map[net.Conn]struct{}
+	closingClient bool
+	clientWG      sync.WaitGroup
+	backgroundWG  sync.WaitGroup
 
 	deviceID string
-	mu       sync.Mutex
-	counter  uint64
-	lastTime string
+	ingestMu sync.Mutex
+	hlc      *hybridLogicalClock
+	now      func() time.Time
 
 	subMu         sync.RWMutex
 	subscriptions map[string]*subscription
@@ -90,29 +115,76 @@ type subscription struct {
 	client  *clientConn
 }
 
+type Config struct {
+	SocketPath         string
+	DBPath             string
+	P2PListenAddresses []string
+}
+
 func New(path string, dbPath string) (*Daemon, error) {
-	db, err := badger.Open(badger.DefaultOptions(dbPath))
+	return NewWithConfig(Config{SocketPath: path, DBPath: dbPath})
+}
+
+func NewWithConfig(config Config) (*Daemon, error) {
+	if config.SocketPath == "" {
+		return nil, fmt.Errorf("socket path is required")
+	}
+	if config.DBPath == "" {
+		return nil, fmt.Errorf("database path is required")
+	}
+	db, err := badger.Open(badger.DefaultOptions(config.DBPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open badgerdb: %w", err)
 	}
+	if err := ensureStorageSchema(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	clock, err := loadHLC(db)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
 
-	node, err := libp2p.New()
+	privateKey, err := loadOrCreateIdentity(identityPath(config.DBPath))
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	memberships, err := loadMembershipStore(membershipsPath(config.DBPath))
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	options := []libp2p.Option{libp2p.Identity(privateKey)}
+	if len(config.P2PListenAddresses) > 0 {
+		options = append(options, libp2p.ListenAddrStrings(config.P2PListenAddresses...))
+	}
+	node, err := libp2p.New(options...)
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to create libp2p node: %w", err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	d := &Daemon{
-		socketPath:    path,
+		socketPath:    config.SocketPath,
 		routes:        make(map[string]HandlerFunc),
-		ctx:           context.Background(),
+		ctx:           ctx,
+		cancel:        cancel,
 		p2p:           node,
 		store:         db,
+		memberships:   memberships,
 		deviceID:      node.ID().String(),
+		hlc:           clock,
+		now:           time.Now,
+		clients:       make(map[net.Conn]struct{}),
 		subscriptions: make(map[string]*subscription),
 	}
 
 	d.p2p.SetStreamHandler("/thalweg/1.0.0", d.handleP2PStream)
+	d.p2p.SetStreamHandler(meshProtocolID, d.handleMeshStream)
 	d.registerRoutes()
 
 	return d, nil
@@ -122,27 +194,127 @@ func (d *Daemon) Register(action string, handler HandlerFunc) {
 	d.routes[action] = handler
 }
 
-func (d *Daemon) Start() {
-	d.restorePeers()
-	_ = os.Remove(d.socketPath)
-
+func (d *Daemon) Start() error {
+	d.lifecycleMu.Lock()
+	if d.closed {
+		d.lifecycleMu.Unlock()
+		return fmt.Errorf("daemon is closed")
+	}
+	if d.started {
+		d.lifecycleMu.Unlock()
+		return fmt.Errorf("daemon is already started")
+	}
+	if err := prepareSocket(d.socketPath); err != nil {
+		d.lifecycleMu.Unlock()
+		return err
+	}
 	listener, err := net.Listen("unix", d.socketPath)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		d.lifecycleMu.Unlock()
+		return fmt.Errorf("listen on unix socket %s: %w", d.socketPath, err)
 	}
+	if err := os.Chmod(d.socketPath, 0o600); err != nil {
+		listener.Close()
+		_ = os.Remove(d.socketPath)
+		d.lifecycleMu.Unlock()
+		return fmt.Errorf("restrict unix socket permissions: %w", err)
+	}
+	d.listener = listener
+	d.ownsSocket = true
+	d.started = true
+	d.restorePeers()
+	d.restoreMeshPeers()
+	d.lifecycleMu.Unlock()
+
 	fmt.Println("Daemon is listening.")
-	defer listener.Close()
-	defer d.store.Close()
-	defer d.p2p.Close()
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) || d.ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("accept unix socket connection: %w", err)
+		}
+		if !d.trackClient(conn) {
+			_ = conn.Close()
 			continue
 		}
-		go d.Handle(conn)
+		go func() {
+			defer d.untrackClient(conn)
+			d.Handle(conn)
+		}()
 	}
+}
+
+func (d *Daemon) Close() error {
+	d.closeOnce.Do(func() {
+		if d.cancel != nil {
+			d.cancel()
+		}
+
+		d.clientMu.Lock()
+		d.closingClient = true
+		clients := make([]net.Conn, 0, len(d.clients))
+		for conn := range d.clients {
+			clients = append(clients, conn)
+		}
+		d.clientMu.Unlock()
+
+		d.lifecycleMu.Lock()
+		d.closed = true
+		listener := d.listener
+		ownsSocket := d.ownsSocket
+		d.lifecycleMu.Unlock()
+
+		var errs []error
+		if listener != nil {
+			if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+				errs = append(errs, fmt.Errorf("close unix listener: %w", err))
+			}
+		}
+		for _, conn := range clients {
+			_ = conn.Close()
+		}
+		d.clientWG.Wait()
+		d.backgroundWG.Wait()
+
+		if ownsSocket && d.socketPath != "" {
+			if err := os.Remove(d.socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, fmt.Errorf("remove unix socket: %w", err))
+			}
+		}
+		if d.p2p != nil {
+			if err := d.p2p.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("close libp2p host: %w", err))
+			}
+		}
+		if d.store != nil {
+			if err := d.store.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("close badgerdb: %w", err))
+			}
+		}
+		d.closeErr = errors.Join(errs...)
+	})
+	return d.closeErr
+}
+
+func (d *Daemon) trackClient(conn net.Conn) bool {
+	d.clientMu.Lock()
+	defer d.clientMu.Unlock()
+	if d.closingClient {
+		return false
+	}
+	d.clients[conn] = struct{}{}
+	d.clientWG.Add(1)
+	return true
+}
+
+func (d *Daemon) untrackClient(conn net.Conn) {
+	d.clientMu.Lock()
+	delete(d.clients, conn)
+	d.clientMu.Unlock()
+	d.clientWG.Done()
 }
 
 func (d *Daemon) Handle(conn net.Conn) {
@@ -156,23 +328,55 @@ func (d *Daemon) Handle(conn net.Conn) {
 	for scanner.Scan() {
 		var msg Message
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
-			client.Encode(Response{Success: false, Error: "invalid JSON structure"})
+			client.Encode(Response{
+				ProtocolVersion: currentLocalProtocolVersion,
+				Success:         false,
+				Error:           "invalid JSON structure",
+			})
+			continue
+		}
+		if msg.ProtocolVersion != 0 && msg.ProtocolVersion != currentLocalProtocolVersion {
+			client.Encode(Response{
+				ID:              msg.ID,
+				ProtocolVersion: currentLocalProtocolVersion,
+				Success:         false,
+				Error: fmt.Sprintf(
+					"unsupported protocol version %d (daemon supports %d)",
+					msg.ProtocolVersion,
+					currentLocalProtocolVersion,
+				),
+			})
 			continue
 		}
 
 		handler, exists := d.routes[msg.Action]
 		if !exists {
-			client.Encode(Response{ID: msg.ID, Success: false, Error: fmt.Sprintf("unknown action: %s", msg.Action)})
+			client.Encode(Response{
+				ID:              msg.ID,
+				ProtocolVersion: currentLocalProtocolVersion,
+				Success:         false,
+				Error:           fmt.Sprintf("unknown action: %s", msg.Action),
+			})
 			continue
 		}
 
 		data, err := handler(client, msg.Payload)
 		if err != nil {
-			client.Encode(Response{ID: msg.ID, Success: false, Error: err.Error()})
+			client.Encode(Response{
+				ID:              msg.ID,
+				ProtocolVersion: currentLocalProtocolVersion,
+				Success:         false,
+				Error:           err.Error(),
+			})
 			continue
 		}
 
-		client.Encode(Response{ID: msg.ID, Success: true, Data: data})
+		client.Encode(Response{
+			ID:              msg.ID,
+			ProtocolVersion: currentLocalProtocolVersion,
+			Success:         true,
+			Data:            data,
+		})
 	}
 }
 
@@ -183,10 +387,53 @@ func (d *Daemon) registerRoutes() {
 			addrs = append(addrs, fmt.Sprintf("%s/p2p/%s", addr, d.p2p.ID()))
 		}
 		return map[string]any{
-			"peerId":    d.p2p.ID().String(),
-			"deviceId":  d.deviceID,
-			"addresses": addrs,
+			"peerId":                d.p2p.ID().String(),
+			"deviceId":              d.deviceID,
+			"addresses":             addrs,
+			"daemonVersion":         daemonVersion,
+			"protocolVersion":       currentLocalProtocolVersion,
+			"storageSchemaVersion":  currentStorageSchemaVersion,
+			"meshProtocolVersion":   meshProtocolVersion,
+			"membershipFileVersion": membershipFileVersion,
 		}, nil
+	})
+
+	d.Register("network_create", func(_ *clientConn, payload json.RawMessage) (any, error) {
+		var args struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(payload, &args); err != nil {
+			return nil, err
+		}
+		membership, invitation, err := d.memberships.create(args.Name)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"membership": membership,
+			"invitation": invitation,
+		}, nil
+	})
+
+	d.Register("network_join", func(_ *clientConn, payload json.RawMessage) (any, error) {
+		var args struct {
+			Invitation string `json:"invitation"`
+		}
+		if err := json.Unmarshal(payload, &args); err != nil {
+			return nil, err
+		}
+		membership, joined, err := d.memberships.join(args.Invitation)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"membership": membership,
+			"joined":     joined,
+		}, nil
+	})
+
+	d.Register("network_list", func(_ *clientConn, _ json.RawMessage) (any, error) {
+		return d.memberships.list(), nil
 	})
 
 	d.Register("event_ingest", func(_ *clientConn, payload json.RawMessage) (any, error) {
@@ -283,6 +530,92 @@ func (d *Daemon) registerRoutes() {
 		}
 		return fmt.Sprintf("Successfully connected to %s", info.ID.String()), nil
 	})
+
+	d.Register("mesh_dial", func(_ *clientConn, payload json.RawMessage) (any, error) {
+		var args struct {
+			TargetAddr       string `json:"targetAddr"`
+			LegacyTargetAddr string `json:"target_addr"`
+			Network          string `json:"network"`
+		}
+		if err := json.Unmarshal(payload, &args); err != nil {
+			return nil, err
+		}
+		if args.TargetAddr == "" {
+			args.TargetAddr = args.LegacyTargetAddr
+		}
+		if args.TargetAddr == "" {
+			return nil, fmt.Errorf("targetAddr is required")
+		}
+		if args.Network == "" {
+			return nil, fmt.Errorf("network is required")
+		}
+		maddr, err := multiaddr.NewMultiaddr(args.TargetAddr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid multiaddress: %w", err)
+		}
+		info, err := peer.AddrInfoFromP2pAddr(maddr)
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(d.ctx, 10*time.Second)
+		defer cancel()
+		if err := d.p2p.Connect(ctx, *info); err != nil {
+			return nil, fmt.Errorf("connect to mesh peer: %w", err)
+		}
+		if err := d.authenticatePeer(ctx, info.ID, args.Network); err != nil {
+			return nil, fmt.Errorf("authenticate mesh peer: %w", err)
+		}
+		if err := d.persistMeshPeer(args.Network, info.ID, args.TargetAddr); err != nil {
+			return nil, fmt.Errorf("authenticated, but failed to persist mesh peer: %w", err)
+		}
+		membership, _ := d.memberships.get(args.Network)
+		return map[string]any{
+			"peerId":     info.ID.String(),
+			"network":    membership.info(),
+			"authorized": true,
+		}, nil
+	})
+
+	d.Register("mesh_sync", func(_ *clientConn, payload json.RawMessage) (any, error) {
+		var args struct {
+			TargetAddr       string `json:"targetAddr"`
+			LegacyTargetAddr string `json:"target_addr"`
+			Network          string `json:"network"`
+		}
+		if err := json.Unmarshal(payload, &args); err != nil {
+			return nil, err
+		}
+		if args.TargetAddr == "" {
+			args.TargetAddr = args.LegacyTargetAddr
+		}
+		if args.TargetAddr == "" {
+			return nil, fmt.Errorf("targetAddr is required")
+		}
+		if args.Network == "" {
+			return nil, fmt.Errorf("network is required")
+		}
+		maddr, err := multiaddr.NewMultiaddr(args.TargetAddr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid multiaddress: %w", err)
+		}
+		info, err := peer.AddrInfoFromP2pAddr(maddr)
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(d.ctx, syncTimeout)
+		defer cancel()
+		if err := d.p2p.Connect(ctx, *info); err != nil {
+			return nil, fmt.Errorf("connect to mesh peer: %w", err)
+		}
+		result, err := d.synchronizePeer(ctx, info.ID, args.Network)
+		if err != nil {
+			return nil, fmt.Errorf("synchronize mesh peer: %w", err)
+		}
+		if err := d.persistMeshPeer(args.Network, info.ID, args.TargetAddr); err != nil {
+			return nil, fmt.Errorf("synchronized, but failed to persist mesh peer: %w", err)
+		}
+		return result, nil
+	})
 }
 
 func (d *Daemon) ingest(networkName, stream, occurredAt, eventID string, payload json.RawMessage) (ThalwegEvent, error) {
@@ -295,55 +628,299 @@ func (d *Daemon) ingest(networkName, stream, occurredAt, eventID string, payload
 	if len(payload) == 0 {
 		payload = json.RawMessage("null")
 	}
+	canonicalPayload, err := normalizePayload(payload)
+	if err != nil {
+		return ThalwegEvent{}, err
+	}
+	payload = canonicalPayload
+	occurredAtProvided := occurredAt != ""
+	wallTime := d.clockNow()
 	if occurredAt == "" {
-		occurredAt = time.Now().UTC().Format(time.RFC3339Nano)
+		occurredAt = wallTime.UTC().Format(canonicalTimestampLayout)
 	}
-	if _, err := time.Parse(time.RFC3339Nano, occurredAt); err != nil {
-		return ThalwegEvent{}, fmt.Errorf("occurredAt must be RFC3339/RFC3339Nano: %w", err)
+	occurredAt, err = normalizeTimestamp("occurredAt", occurredAt)
+	if err != nil {
+		return ThalwegEvent{}, err
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	counter := d.nextCounter(occurredAt)
 	if eventID == "" {
 		eventID = randomID("evt")
 	}
 
-	event := ThalwegEvent{
-		ID:           eventID,
-		Network:      networkName,
-		Stream:       stream,
-		OccurredAt:   occurredAt,
-		InsertedAt:   now,
-		PropagatedAt: now,
-		Counter:      counter,
-		DeviceID:     d.deviceID,
-		Payload:      payload,
-	}
+	d.ingestMu.Lock()
+	defer d.ingestMu.Unlock()
 
-	value, err := json.Marshal(event)
-	if err != nil {
-		return ThalwegEvent{}, err
-	}
+	var event ThalwegEvent
+	created := false
+	var nextClockState hlcTimestamp
 	err = d.store.Update(func(txn *badger.Txn) error {
-		return txn.Set([]byte(eventKey(event)), value)
+		existing, err := findEventByID(txn, networkName, eventID)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			if err := validateIdempotentRetry(*existing, stream, occurredAt, occurredAtProvided, payload); err != nil {
+				return err
+			}
+			event = *existing
+			return nil
+		}
+
+		nextClockState, err = d.hlc.nextLocal(wallTime)
+		if err != nil {
+			return err
+		}
+		event = ThalwegEvent{
+			ID:           eventID,
+			Network:      networkName,
+			Stream:       stream,
+			OccurredAt:   occurredAt,
+			InsertedAt:   nextClockState.Physical,
+			PropagatedAt: nextClockState.Physical,
+			Counter:      nextClockState.Logical,
+			DeviceID:     d.deviceID,
+			Payload:      payload,
+		}
+		value, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		primaryKey := eventKey(event)
+		if err := txn.Set([]byte(primaryKey), value); err != nil {
+			return err
+		}
+		if err := txn.Set([]byte(eventIDKey(networkName, eventID)), []byte(primaryKey)); err != nil {
+			return err
+		}
+		if err := setHLCState(txn, nextClockState); err != nil {
+			return err
+		}
+		created = true
+		return nil
 	})
 	if err != nil {
 		return ThalwegEvent{}, err
 	}
 
-	d.broadcast(event)
+	if created {
+		d.hlc.commit(nextClockState)
+		d.broadcast(event)
+	}
 	return event, nil
 }
 
-func (d *Daemon) nextCounter(occurredAt string) uint64 {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if occurredAt <= d.lastTime {
-		d.counter++
-	} else {
-		d.lastTime = occurredAt
-		d.counter = 0
+// ingestReplicated persists an immutable event envelope received from another
+// node. Transport and membership authentication intentionally live outside
+// this boundary; callers must authenticate the peer before invoking it.
+func (d *Daemon) ingestReplicated(incoming ThalwegEvent) (ThalwegEvent, bool, error) {
+	event, err := normalizeReplicatedEvent(incoming)
+	if err != nil {
+		return ThalwegEvent{}, false, err
 	}
-	return d.counter
+
+	d.ingestMu.Lock()
+	defer d.ingestMu.Unlock()
+
+	created := false
+	var nextClockState hlcTimestamp
+	err = d.store.Update(func(txn *badger.Txn) error {
+		existing, err := findEventByID(txn, event.Network, event.ID)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			if err := validateReplicatedRetry(*existing, event); err != nil {
+				return err
+			}
+			event = *existing
+			return nil
+		}
+
+		nextClockState, err = mergeHLCTimestamp(
+			d.hlc.state,
+			hlcTimestamp{Physical: event.InsertedAt, Logical: event.Counter},
+			d.clockNow(),
+		)
+		if err != nil {
+			return err
+		}
+		value, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("encode replicated event: %w", err)
+		}
+		primaryKey := eventKey(event)
+		if err := txn.Set([]byte(primaryKey), value); err != nil {
+			return err
+		}
+		if err := txn.Set([]byte(eventIDKey(event.Network, event.ID)), []byte(primaryKey)); err != nil {
+			return err
+		}
+		if err := setHLCState(txn, nextClockState); err != nil {
+			return err
+		}
+		created = true
+		return nil
+	})
+	if err != nil {
+		return ThalwegEvent{}, false, err
+	}
+
+	if created {
+		d.hlc.commit(nextClockState)
+		d.broadcast(event)
+	}
+	return event, created, nil
+}
+
+func normalizeReplicatedEvent(event ThalwegEvent) (ThalwegEvent, error) {
+	required := []struct {
+		field string
+		value string
+	}{
+		{field: "id", value: event.ID},
+		{field: "network", value: event.Network},
+		{field: "stream", value: event.Stream},
+		{field: "deviceId", value: event.DeviceID},
+		{field: "occurredAt", value: event.OccurredAt},
+		{field: "insertedAt", value: event.InsertedAt},
+		{field: "propagatedAt", value: event.PropagatedAt},
+	}
+	for _, candidate := range required {
+		if candidate.value == "" {
+			return ThalwegEvent{}, fmt.Errorf("%s is required", candidate.field)
+		}
+	}
+
+	var err error
+	event.OccurredAt, err = normalizeTimestamp("occurredAt", event.OccurredAt)
+	if err != nil {
+		return ThalwegEvent{}, err
+	}
+	event.InsertedAt, err = normalizeTimestamp("insertedAt", event.InsertedAt)
+	if err != nil {
+		return ThalwegEvent{}, err
+	}
+	event.PropagatedAt, err = normalizeTimestamp("propagatedAt", event.PropagatedAt)
+	if err != nil {
+		return ThalwegEvent{}, err
+	}
+	if len(event.Payload) == 0 {
+		event.Payload = json.RawMessage("null")
+	}
+	event.Payload, err = normalizePayload(event.Payload)
+	if err != nil {
+		return ThalwegEvent{}, err
+	}
+	return event, nil
+}
+
+func findEventByID(txn *badger.Txn, networkName string, eventID string) (*ThalwegEvent, error) {
+	indexItem, err := txn.Get([]byte(eventIDKey(networkName, eventID)))
+	if errors.Is(err, badger.ErrKeyNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read event ID index: %w", err)
+	}
+	primaryKey, err := indexItem.ValueCopy(nil)
+	if err != nil {
+		return nil, fmt.Errorf("read event ID index value: %w", err)
+	}
+	eventItem, err := txn.Get(primaryKey)
+	if errors.Is(err, badger.ErrKeyNotFound) {
+		return nil, fmt.Errorf("event ID index points to missing event: %s", primaryKey)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read indexed event: %w", err)
+	}
+
+	var event ThalwegEvent
+	if err := eventItem.Value(func(value []byte) error {
+		return json.Unmarshal(value, &event)
+	}); err != nil {
+		return nil, err
+	}
+	if event.ID != eventID || event.Network != networkName {
+		return nil, fmt.Errorf("event ID index points to mismatched event %q in network %q", event.ID, event.Network)
+	}
+	normalizedOccurredAt, err := normalizeTimestamp("stored occurredAt", event.OccurredAt)
+	if err != nil {
+		return nil, err
+	}
+	normalizedPayload, err := normalizePayload(event.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("decode stored payload for event %s: %w", event.ID, err)
+	}
+	event.OccurredAt = normalizedOccurredAt
+	event.Payload = normalizedPayload
+	return &event, nil
+}
+
+func validateIdempotentRetry(
+	existing ThalwegEvent,
+	stream string,
+	occurredAt string,
+	occurredAtProvided bool,
+	payload json.RawMessage,
+) error {
+	existingPayload, err := normalizePayload(existing.Payload)
+	if err != nil {
+		return fmt.Errorf("decode stored payload for event %s: %w", existing.ID, err)
+	}
+	existingOccurredAt, err := normalizeTimestamp("stored occurredAt", existing.OccurredAt)
+	if err != nil {
+		return err
+	}
+	if existing.Stream != stream ||
+		(occurredAtProvided && existingOccurredAt != occurredAt) ||
+		!bytes.Equal(existingPayload, payload) {
+		return fmt.Errorf("event id %q already exists with different content in network %q", existing.ID, existing.Network)
+	}
+	return nil
+}
+
+func validateReplicatedRetry(existing ThalwegEvent, incoming ThalwegEvent) error {
+	storedID := existing.ID
+	existing, err := normalizeReplicatedEvent(existing)
+	if err != nil {
+		return fmt.Errorf("normalize stored event %s: %w", storedID, err)
+	}
+	if existing.ID != incoming.ID ||
+		existing.Network != incoming.Network ||
+		existing.Stream != incoming.Stream ||
+		existing.OccurredAt != incoming.OccurredAt ||
+		existing.InsertedAt != incoming.InsertedAt ||
+		existing.PropagatedAt != incoming.PropagatedAt ||
+		existing.Counter != incoming.Counter ||
+		existing.DeviceID != incoming.DeviceID ||
+		!bytes.Equal(existing.Payload, incoming.Payload) {
+		return fmt.Errorf(
+			"event id %q already exists with a different origin envelope in network %q",
+			incoming.ID,
+			incoming.Network,
+		)
+	}
+	return nil
+}
+
+func normalizePayload(payload json.RawMessage) (json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, fmt.Errorf("payload must be valid JSON: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, fmt.Errorf("payload must contain exactly one JSON value")
+		}
+		return nil, fmt.Errorf("payload must be valid JSON: %w", err)
+	}
+	normalized, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("normalize payload JSON: %w", err)
+	}
+	return normalized, nil
 }
 
 func (d *Daemon) query(networkName string, streams []string, from string, to string, limit int) ([]ThalwegEvent, error) {
@@ -351,17 +928,21 @@ func (d *Daemon) query(networkName string, streams []string, from string, to str
 		return nil, fmt.Errorf("network is required")
 	}
 	if from != "" {
-		if _, err := time.Parse(time.RFC3339Nano, from); err != nil {
-			return nil, fmt.Errorf("from must be RFC3339/RFC3339Nano: %w", err)
+		normalized, err := normalizeTimestamp("from", from)
+		if err != nil {
+			return nil, err
 		}
+		from = normalized
 	}
 	if to != "" {
-		if _, err := time.Parse(time.RFC3339Nano, to); err != nil {
-			return nil, fmt.Errorf("to must be RFC3339/RFC3339Nano: %w", err)
+		normalized, err := normalizeTimestamp("to", to)
+		if err != nil {
+			return nil, err
 		}
+		to = normalized
 	}
 
-	var events []ThalwegEvent
+	events := make([]ThalwegEvent, 0)
 	err := d.store.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
@@ -375,6 +956,11 @@ func (d *Daemon) query(networkName string, streams []string, from string, to str
 					if err := json.Unmarshal(val, &event); err != nil {
 						return err
 					}
+					normalized, err := normalizeTimestamp("stored occurredAt", event.OccurredAt)
+					if err != nil {
+						return err
+					}
+					event.OccurredAt = normalized
 					if inRange(event, from, to) {
 						events = append(events, event)
 					}
@@ -402,11 +988,15 @@ func (d *Daemon) query(networkName string, streams []string, from string, to str
 
 func queryPrefixes(networkName string, streams []string) []string {
 	if len(streams) == 0 {
-		return []string{fmt.Sprintf("event:%s:", escapeKeyPart(networkName))}
+		return []string{fmt.Sprintf("event-v3:%s:", encodeKeyPart(networkName))}
 	}
 	prefixes := make([]string, 0, len(streams))
 	for _, stream := range streams {
-		prefixes = append(prefixes, fmt.Sprintf("event:%s:%s:", escapeKeyPart(networkName), escapeKeyPart(stream)))
+		prefixes = append(prefixes, fmt.Sprintf(
+			"event-v3:%s:%s:",
+			encodeKeyPart(networkName),
+			encodeKeyPart(stream),
+		))
 	}
 	return prefixes
 }
@@ -421,11 +1011,58 @@ func inRange(event ThalwegEvent, from string, to string) bool {
 	return true
 }
 
+func normalizeTimestamp(field string, value string) (string, error) {
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return "", fmt.Errorf("%s must be RFC3339/RFC3339Nano: %w", field, err)
+	}
+	return parsed.UTC().Format(canonicalTimestampLayout), nil
+}
+
+func (d *Daemon) clockNow() time.Time {
+	if d.now != nil {
+		return d.now()
+	}
+	return time.Now()
+}
+
 func chronologicalKey(event ThalwegEvent) string {
-	return fmt.Sprintf("%s:%020d:%s:%s:%s", event.OccurredAt, event.Counter, event.DeviceID, event.Stream, event.ID)
+	return fmt.Sprintf(
+		"%s:%s:%020d:%s:%s:%s",
+		event.OccurredAt,
+		event.InsertedAt,
+		event.Counter,
+		event.DeviceID,
+		event.Stream,
+		event.ID,
+	)
 }
 
 func eventKey(event ThalwegEvent) string {
+	return fmt.Sprintf(
+		"event-v3:%s:%s:%s:%020d:%s:%s",
+		encodeKeyPart(event.Network),
+		encodeKeyPart(event.Stream),
+		event.OccurredAt,
+		event.Counter,
+		encodeKeyPart(event.DeviceID),
+		encodeKeyPart(event.ID),
+	)
+}
+
+func eventIDKey(networkName string, eventID string) string {
+	return fmt.Sprintf(
+		"event-id-v3:%s:%s",
+		encodeKeyPart(networkName),
+		encodeKeyPart(eventID),
+	)
+}
+
+func encodeKeyPart(value string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(value))
+}
+
+func legacyEventKey(event ThalwegEvent) string {
 	return fmt.Sprintf(
 		"event:%s:%s:%s:%020d:%s:%s",
 		escapeKeyPart(event.Network),
@@ -452,9 +1089,10 @@ func (d *Daemon) broadcast(event ThalwegEvent) {
 			continue
 		}
 		_ = sub.client.Encode(StreamMessage{
-			Type:           "event",
-			SubscriptionID: sub.id,
-			Event:          event,
+			Type:            "event",
+			ProtocolVersion: currentLocalProtocolVersion,
+			SubscriptionID:  sub.id,
+			Event:           event,
 		})
 	}
 }
@@ -494,7 +1132,9 @@ func (d *Daemon) restorePeers() {
 				if err != nil {
 					return nil
 				}
+				d.backgroundWG.Add(1)
 				go func(pi peer.AddrInfo) {
+					defer d.backgroundWG.Done()
 					if err := d.p2p.Connect(d.ctx, pi); err != nil {
 						fmt.Printf("Failed to reconnect to %s: %s\n", pi.ID.String(), err)
 					} else {
@@ -506,6 +1146,83 @@ func (d *Daemon) restorePeers() {
 		}
 		return nil
 	})
+}
+
+type persistedMeshPeer struct {
+	Network string `json:"network"`
+	Address string `json:"address"`
+}
+
+func (d *Daemon) persistMeshPeer(networkName string, peerID peer.ID, address string) error {
+	value, err := json.Marshal(persistedMeshPeer{
+		Network: networkName,
+		Address: address,
+	})
+	if err != nil {
+		return err
+	}
+	key := fmt.Sprintf("mesh-peer-v1:%s:%s", encodeKeyPart(networkName), peerID)
+	return d.store.Update(func(txn *badger.Txn) error {
+		return txn.Set([]byte(key), value)
+	})
+}
+
+func (d *Daemon) restoreMeshPeers() {
+	var records []persistedMeshPeer
+	if err := d.store.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+		prefix := []byte("mesh-peer-v1:")
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			var record persistedMeshPeer
+			if err := it.Item().Value(func(value []byte) error {
+				return json.Unmarshal(value, &record)
+			}); err != nil {
+				return err
+			}
+			records = append(records, record)
+		}
+		return nil
+	}); err != nil {
+		fmt.Printf("Failed to load persisted mesh peers: %s\n", err)
+		return
+	}
+
+	for _, record := range records {
+		record := record
+		d.backgroundWG.Add(1)
+		go func() {
+			defer d.backgroundWG.Done()
+			if _, exists := d.memberships.get(record.Network); !exists {
+				fmt.Printf("Cannot restore mesh peer for unmounted network %q\n", record.Network)
+				return
+			}
+			maddr, err := multiaddr.NewMultiaddr(record.Address)
+			if err != nil {
+				fmt.Printf("Cannot restore invalid mesh peer address: %s\n", err)
+				return
+			}
+			info, err := peer.AddrInfoFromP2pAddr(maddr)
+			if err != nil {
+				fmt.Printf("Cannot restore mesh peer info: %s\n", err)
+				return
+			}
+			ctx, cancel := context.WithTimeout(d.ctx, syncTimeout)
+			defer cancel()
+			if err := d.p2p.Connect(ctx, *info); err != nil {
+				fmt.Printf("Failed to reconnect mesh peer %s: %s\n", info.ID, err)
+				return
+			}
+			if _, err := d.synchronizePeer(ctx, info.ID, record.Network); err != nil {
+				fmt.Printf(
+					"Failed to synchronize mesh peer %s for network %q: %s\n",
+					info.ID,
+					record.Network,
+					err,
+				)
+			}
+		}()
+	}
 }
 
 func (d *Daemon) handleP2PStream(stream network.Stream) {
