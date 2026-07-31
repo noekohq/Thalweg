@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-//go:embed web/index.html
+//go:embed web/index.html web/assets/*
 var webAssets embed.FS
 
 type WebOptions struct {
@@ -102,9 +102,39 @@ func (s *WebServer) Handler() http.Handler {
 	sessionRoot := "/session/" + s.token + "/"
 	mux := http.NewServeMux()
 	mux.HandleFunc(sessionRoot, s.serveIndex)
+	mux.HandleFunc(sessionRoot+"assets/", s.serveAsset)
 	mux.HandleFunc(sessionRoot+"api/snapshot", s.serveSnapshot)
 	mux.HandleFunc(sessionRoot+"api/diagnostics", s.serveDiagnostics)
 	return securityHeaders(mux)
+}
+
+func (s *WebServer) serveAsset(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.Header().Set("Allow", http.MethodGet)
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sessionRoot := "/session/" + s.token + "/"
+	name := strings.TrimPrefix(request.URL.Path, sessionRoot)
+	if name != "assets/app.js" && name != "assets/app.css" {
+		http.NotFound(writer, request)
+		return
+	}
+	asset, err := webAssets.ReadFile("web/" + name)
+	if err != nil {
+		http.NotFound(writer, request)
+		return
+	}
+	switch {
+	case strings.HasSuffix(name, ".css"):
+		writer.Header().Set("Content-Type", "text/css; charset=utf-8")
+	case strings.HasSuffix(name, ".js"):
+		writer.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	default:
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	}
+	writer.Header().Set("Cache-Control", "no-store")
+	_, _ = writer.Write(asset)
 }
 
 func (s *WebServer) serveIndex(writer http.ResponseWriter, request *http.Request) {
@@ -164,7 +194,7 @@ func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set(
 			"Content-Security-Policy",
-			"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
 		)
 		writer.Header().Set("Referrer-Policy", "no-referrer")
 		writer.Header().Set("X-Content-Type-Options", "nosniff")

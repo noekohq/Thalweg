@@ -205,6 +205,54 @@ func TestStartServesAndCloseStopsDaemon(t *testing.T) {
 	}
 }
 
+func TestDaemonShutdownRouteStopsDaemon(t *testing.T) {
+	root := t.TempDir()
+	socketPath := shortSocketPath(t, "shutdown.sock")
+	d, err := New(socketPath, filepath.Join(root, "storage", "badger"))
+	if err != nil {
+		t.Fatalf("create daemon: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = d.Close()
+	})
+
+	startErr := make(chan error, 1)
+	go func() {
+		startErr <- d.Start()
+	}()
+	conn := waitForDaemonSocket(t, socketPath, startErr)
+
+	request := Message{
+		ID:              "shutdown-1",
+		ProtocolVersion: currentLocalProtocolVersion,
+		Action:          "daemon_shutdown",
+		Payload:         json.RawMessage(`{}`),
+	}
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
+		t.Fatalf("send shutdown request: %v", err)
+	}
+	var response Response
+	if err := json.NewDecoder(conn).Decode(&response); err != nil {
+		t.Fatalf("read shutdown response: %v", err)
+	}
+	if !response.Success || response.ID != request.ID {
+		t.Fatalf("unexpected shutdown response: %#v", response)
+	}
+	_ = conn.Close()
+
+	select {
+	case err := <-startErr:
+		if err != nil {
+			t.Fatalf("start returned an error after shutdown: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("daemon did not stop within two seconds")
+	}
+	if _, err := os.Lstat(socketPath); !os.IsNotExist(err) {
+		t.Fatalf("socket still exists after shutdown: %v", err)
+	}
+}
+
 func TestStartDoesNotRemoveActiveSocket(t *testing.T) {
 	root := t.TempDir()
 	socketPath := shortSocketPath(t, "active.sock")

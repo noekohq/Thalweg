@@ -107,6 +107,19 @@ Payload:
 
 Returns `{"removed":true}` even if the identifier was not present.
 
+### `daemon_shutdown`
+
+Payload may be `{}`. Returns:
+
+```json
+{"stopping":true}
+```
+
+After sending the response, the daemon gracefully closes subscriptions,
+clients, discovery, libp2p, BadgerDB, and its owned Unix socket. This action is
+available only through the local `0600` Unix socket and is used by
+`thalweg daemon stop` and `thalweg daemon restart`.
+
 ### `network_status`
 
 Payload may be `{}`. Returns:

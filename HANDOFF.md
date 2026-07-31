@@ -18,6 +18,10 @@ Important entry points:
 - `cli_config.go`: per-user config resolution and restricted atomic writes.
 - `cli_ipc.go`: bounded local CLI request/response client.
 - `cli_console.go`: TUI and loopback web-console CLI entry points.
+- `cli_daemon_lifecycle.go`: managed daemon state, status, logs, stop, and
+  restart.
+- `cli_upgrade.go`: source-channel installation records, Git fast-forward
+  validation, atomic reinstall, and post-upgrade restart.
 - `internal/console`: shared read-only daemon adapter, snapshot model, Bubble
   Tea TUI, embedded browser UI, security-sensitive routing, and tests.
 - `scripts/install.sh`: local source-checkout installer.
@@ -82,9 +86,13 @@ creates one `insights:summary` event, and all four print chronologically.
   synchronizes one network at a time.
 - Persisted peer restoration requires a stable configured address until
   discovery exists.
-- `thalweg daemon -d` detaches, verifies socket readiness, and redirects to a
-  restricted log, but the installer does not yet register a supervised login
-  service, manage upgrades, or uninstall Thalweg.
+- `thalweg daemon start` detaches, verifies socket readiness, and records
+  restricted lifecycle state and logs. The CLI can inspect, stop, and restart
+  it gracefully. Source installs record their checkout and commit, and
+  `thalweg upgrade` performs clean fast-forward upgrades with atomic binary
+  replacement and optional restart. The installer does not yet register a
+  supervised login service, restart on failure, provide signed release
+  artifacts, or uninstall Thalweg.
 - `network_invite` and `thalweg network invite` reissue the persisted
   version-1 shared-bearer credential. They do not rotate it or create expiring
   enrollment grants.

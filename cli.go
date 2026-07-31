@@ -36,12 +36,16 @@ func runCLI(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		_, err = fmt.Fprintln(stdout, daemon.Version())
 	case "init":
 		err = runInit(args[1:], stdout, stderr)
-	case "daemon", "start":
+	case "daemon":
+		err = runDaemonCommand(args[1:], stdout, stderr)
+	case "start":
 		err = runConfiguredDaemon(args[1:], stdout, stderr)
 	case "spawn":
 		err = runDevelopmentDaemon(args[1:], stdout, stderr)
 	case "status":
 		err = runSimpleAction("status", args[1:], "network_status", map[string]any{}, stdout, stderr)
+	case "upgrade":
+		err = runUpgrade(args[1:], stdout, stderr)
 	case "network":
 		err = runNetwork(args[1:], stdin, stdout, stderr)
 	case "join":
@@ -70,7 +74,13 @@ func printUsage(output io.Writer) {
 Usage:
   thalweg init [--socket PATH] [--storage PATH] [--p2p-listen ADDRS] [--force]
   thalweg daemon [-d] [--log PATH] [--debug]
+  thalweg daemon start [--foreground] [--log PATH] [--debug]
+  thalweg daemon stop [--timeout 10s]
+  thalweg daemon restart [--timeout 10s] [--log PATH] [--debug]
+  thalweg daemon status
+  thalweg daemon logs [--lines 100]
   thalweg status
+  thalweg upgrade [--check] [--no-restart] [--force]
   thalweg network create NAME
   thalweg network invite NAME
   thalweg network listen NAME [--duration 10m] [--debug]
@@ -226,6 +236,17 @@ func serveDaemon(config localConfig, debug bool, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("create daemon: %w", err)
 	}
+	statePath := daemonStatePath(config)
+	state := newDaemonState(config, debug)
+	if err := writeDaemonState(statePath, state); err != nil {
+		_ = d.Close()
+		return err
+	}
+	defer func() {
+		if err := removeDaemonStateIfOwned(statePath, os.Getpid()); err != nil {
+			fmt.Fprintf(stdout, "Failed to remove daemon state: %v\n", err)
+		}
+	}()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {
@@ -246,7 +267,7 @@ func startDetachedDaemon(config localConfig, logPath string, debug bool, stdout 
 		return fmt.Errorf("a daemon is already listening on %s", config.SocketPath)
 	}
 	if logPath == "" {
-		logPath = filepath.Join(filepath.Dir(config.StoragePath), "daemon.log")
+		logPath = defaultDaemonLogPath(config)
 	}
 	logFile, err := openDaemonLog(logPath)
 	if err != nil {
@@ -277,6 +298,11 @@ func startDetachedDaemon(config localConfig, logPath string, debug bool, stdout 
 	for time.Now().Before(deadline) {
 		if _, err := callDaemon(config.SocketPath, "network_status", map[string]any{}); err == nil {
 			pid := command.Process.Pid
+			if err := updateDaemonLogPath(config, logPath); err != nil {
+				_ = command.Process.Signal(syscall.SIGTERM)
+				_ = command.Wait()
+				return fmt.Errorf("record background daemon log: %w", err)
+			}
 			if err := command.Process.Release(); err != nil {
 				return fmt.Errorf("release background daemon process: %w", err)
 			}

@@ -30,6 +30,21 @@ thalweg init
 The installer builds the Go binary into `~/.local/bin` by default. It does not
 edit shell startup files or install a background service. Set
 `THALWEG_INSTALL_DIR` to select another binary directory.
+When that directory is not already in `PATH`, the completion message prints an
+exact `export PATH=...` command for the current shell and explains how to make
+the setting persistent.
+
+Each installation remembers its source checkout. On every device, later
+updates are:
+
+```bash
+thalweg upgrade --check
+thalweg upgrade
+```
+
+The source checkout must be clean and have a configured Git upstream. A
+successful upgrade atomically replaces the binary and gracefully restarts a
+running daemon.
 
 `thalweg init` writes a restricted per-user configuration at
 `~/.config/thalweg/config.json`, uses `/tmp/thalweg.sock`, stores durable data
@@ -45,11 +60,20 @@ thalweg daemon
 Or launch it in the background:
 
 ```bash
-thalweg daemon -d
+thalweg daemon start
 ```
 
 Detached startup waits for the local socket to answer before returning and
 prints the child PID and restricted log path.
+
+Inspect and manage that process later:
+
+```bash
+thalweg daemon status
+thalweg daemon logs
+thalweg daemon restart
+thalweg daemon stop
+```
 
 Provision and inspect it from another without an SDK script:
 

@@ -86,6 +86,8 @@ The current daemon:
   transfers missing envelopes bidirectionally.
 - Provides per-user initialization and native provisioning, event inspection,
   and authenticated peer commands over the documented local IPC contract.
+- Records source installations and provides clean, fast-forward-only,
+  atomically installed upgrades with graceful daemon restart.
 - Provides opt-in LAN mDNS discovery, time-bounded enrollment offers, explicit
   approval/denial, and post-approval initial synchronization.
 - Disables TCP source-port reuse until hole punching is implemented, avoiding

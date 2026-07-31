@@ -20,7 +20,11 @@ propagation.
 Installer smoke test:
 
 ```bash
-THALWEG_INSTALL_DIR="$(mktemp -d)" ./scripts/install.sh
+install_root="$(mktemp -d)"
+THALWEG_INSTALL_DIR="$install_root/bin" \
+THALWEG_INSTALL_RECORD_PATH="$install_root/install.json" \
+  ./scripts/install.sh
+"$install_root/bin/thalweg" upgrade --check
 ```
 
 Short fuzz campaigns:

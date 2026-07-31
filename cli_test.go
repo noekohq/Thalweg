@@ -4,12 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	coredaemon "thalweg/core/daemon"
 )
 
 func TestInitWritesRestrictedIdempotentConfig(t *testing.T) {
@@ -286,6 +290,20 @@ func TestDetachedDaemonArgsPropagateDebug(t *testing.T) {
 	}
 }
 
+func TestManagedDaemonStartRejectsConflictingModes(t *testing.T) {
+	setTestConfig(t, "/tmp/thalweg-managed-start-test.sock")
+	var stdout, stderr bytes.Buffer
+	code := runCLI(
+		[]string{"daemon", "start", "--foreground", "-d"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 1 || !strings.Contains(stderr.String(), "--foreground and -d") {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestConsoleWebRejectsNetworkAccessibleListenAddress(t *testing.T) {
 	setTestConfig(t, "/tmp/thalweg-console-test.sock")
 	var stdout, stderr bytes.Buffer
@@ -344,6 +362,360 @@ func TestOpenDaemonLogIsRestrictedAndRejectsSymlink(t *testing.T) {
 		!strings.Contains(err.Error(), "refusing to open symlink") {
 		t.Fatalf("expected symlink rejection, got %v", err)
 	}
+}
+
+func TestDaemonStateIsRestrictedOwnedAndRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	config := localConfig{StoragePath: filepath.Join(root, "storage", "badger")}
+	statePath := daemonStatePath(config)
+	state := daemonState{
+		Version:       daemonStateVersion,
+		PID:           4242,
+		StartedAt:     time.Now().UTC(),
+		SocketPath:    filepath.Join(root, "daemon.sock"),
+		StoragePath:   config.StoragePath,
+		Executable:    "/tmp/thalweg",
+		DaemonVersion: "test",
+	}
+	if err := writeDaemonState(statePath, state); err != nil {
+		t.Fatalf("write daemon state: %v", err)
+	}
+	info, err := os.Stat(statePath)
+	if err != nil {
+		t.Fatalf("stat daemon state: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("daemon state permissions = %o, want 600", got)
+	}
+	loaded, err := loadDaemonState(statePath)
+	if err != nil {
+		t.Fatalf("load daemon state: %v", err)
+	}
+	if loaded.PID != state.PID || loaded.SocketPath != state.SocketPath {
+		t.Fatalf("loaded daemon state = %#v", loaded)
+	}
+	if err := removeDaemonStateIfOwned(statePath, state.PID+1); err != nil {
+		t.Fatalf("ignore differently owned state: %v", err)
+	}
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("differently owned state was removed: %v", err)
+	}
+	if err := removeDaemonStateIfOwned(statePath, state.PID); err != nil {
+		t.Fatalf("remove owned daemon state: %v", err)
+	}
+	if _, err := os.Stat(statePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("owned daemon state still exists: %v", err)
+	}
+
+	target := filepath.Join(root, "state-target.json")
+	if err := os.WriteFile(target, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write daemon state target: %v", err)
+	}
+	if err := os.Symlink(target, statePath); err != nil {
+		t.Fatalf("create daemon state symlink: %v", err)
+	}
+	if err := writeDaemonState(statePath, state); err == nil ||
+		!strings.Contains(err.Error(), "refusing to replace symlink") {
+		t.Fatalf("expected daemon state symlink rejection, got %v", err)
+	}
+}
+
+func TestDaemonLifecycleStatusReportsLiveUnmanagedDaemon(t *testing.T) {
+	socketPath := startFakeDaemon(t, func(request ipcRequest) (any, string) {
+		if request.Action != "network_status" {
+			t.Fatalf("action = %q, want network_status", request.Action)
+		}
+		return map[string]any{"deviceId": "device-1"}, ""
+	})
+	setTestConfig(t, socketPath)
+	var stdout, stderr bytes.Buffer
+	code := runCLI(
+		[]string{"daemon", "status"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
+	}
+	var status daemonLifecycleStatus
+	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
+		t.Fatalf("decode lifecycle status: %v\n%s", err, stdout.String())
+	}
+	if !status.Running || status.Managed {
+		t.Fatalf("lifecycle status = %#v", status)
+	}
+}
+
+func TestDaemonStopUsesGracefulLocalIPC(t *testing.T) {
+	root := t.TempDir()
+	socketFile, err := os.CreateTemp("", "thalweg-stop-*.sock")
+	if err != nil {
+		t.Fatalf("reserve daemon socket: %v", err)
+	}
+	socketPath := socketFile.Name()
+	if err := socketFile.Close(); err != nil {
+		t.Fatalf("close reserved daemon socket: %v", err)
+	}
+	if err := os.Remove(socketPath); err != nil {
+		t.Fatalf("remove reserved daemon socket: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Remove(socketPath)
+	})
+	d, err := coredaemon.NewWithConfig(coredaemon.Config{
+		SocketPath:         socketPath,
+		DBPath:             filepath.Join(root, "storage", "badger"),
+		P2PListenAddresses: []string{"/ip4/127.0.0.1/tcp/0"},
+	})
+	if err != nil {
+		t.Fatalf("create daemon: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = d.Close()
+	})
+	startErr := make(chan error, 1)
+	go func() {
+		startErr <- d.Start()
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for !daemonSocketActive(socketPath) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !daemonSocketActive(socketPath) {
+		t.Fatal("daemon socket did not become active")
+	}
+
+	setTestConfig(t, socketPath)
+	var stdout, stderr bytes.Buffer
+	code := runCLI(
+		[]string{"daemon", "stop"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Stopped Thalweg daemon") {
+		t.Fatalf("stop output = %q", stdout.String())
+	}
+	select {
+	case err := <-startErr:
+		if err != nil {
+			t.Fatalf("daemon start returned after stop: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("daemon did not stop")
+	}
+}
+
+func TestDaemonLogsPrintsOnlyRequestedTail(t *testing.T) {
+	root := t.TempDir()
+	logPath := filepath.Join(root, "daemon.log")
+	if err := os.WriteFile(logPath, []byte("one\ntwo\nthree\nfour\n"), 0o600); err != nil {
+		t.Fatalf("write daemon log: %v", err)
+	}
+	var output bytes.Buffer
+	if err := printDaemonLogTail(logPath, 2, &output); err != nil {
+		t.Fatalf("print daemon log tail: %v", err)
+	}
+	if strings.Contains(output.String(), "one\n") || strings.Contains(output.String(), "two\n") {
+		t.Fatalf("log tail included old lines: %q", output.String())
+	}
+	if !strings.HasSuffix(output.String(), "three\nfour\n") {
+		t.Fatalf("log tail = %q", output.String())
+	}
+}
+
+func TestInstallRecordRejectsSymlinkAndUnsupportedVersion(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "record.json")
+	if err := os.WriteFile(target, []byte(`{"version":99}`), 0o600); err != nil {
+		t.Fatalf("write installation record: %v", err)
+	}
+	if _, err := loadInstallRecord(target); err == nil ||
+		!strings.Contains(err.Error(), "unsupported installation record version") {
+		t.Fatalf("expected installation record version rejection, got %v", err)
+	}
+
+	link := filepath.Join(root, "record-link.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("create installation record symlink: %v", err)
+	}
+	if _, err := loadInstallRecord(link); err == nil ||
+		!strings.Contains(err.Error(), "refusing to read symlink") {
+		t.Fatalf("expected installation record symlink rejection, got %v", err)
+	}
+}
+
+func TestUpgradeCheckUsesTrackedSourceCommit(t *testing.T) {
+	sourcePath, commit := createUpgradeTestRepository(t)
+	recordPath := filepath.Join(t.TempDir(), "install.json")
+	record := installRecord{
+		Version:          installRecordVersion,
+		Channel:          "source",
+		SourcePath:       sourcePath,
+		BinaryPath:       filepath.Join(t.TempDir(), "thalweg"),
+		Commit:           commit,
+		InstalledVersion: "test",
+		InstalledAt:      time.Now().UTC(),
+	}
+	content, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("encode installation record: %v", err)
+	}
+	if err := os.WriteFile(recordPath, content, 0o600); err != nil {
+		t.Fatalf("write installation record: %v", err)
+	}
+	t.Setenv("THALWEG_INSTALL_RECORD_PATH", recordPath)
+
+	var stdout, stderr bytes.Buffer
+	code := runCLI(
+		[]string{"upgrade", "--check"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Thalweg is up to date") {
+		t.Fatalf("upgrade check output = %q", stdout.String())
+	}
+
+	record.Commit = "older-commit"
+	content, err = json.Marshal(record)
+	if err != nil {
+		t.Fatalf("encode stale installation record: %v", err)
+	}
+	if err := os.WriteFile(recordPath, content, 0o600); err != nil {
+		t.Fatalf("write stale installation record: %v", err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = runCLI(
+		[]string{"upgrade", "--check"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 0 || !strings.Contains(stdout.String(), "Upgrade available") {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestUpgradeRefusesDirtySourceCheckout(t *testing.T) {
+	sourcePath, commit := createUpgradeTestRepository(t)
+	recordPath := filepath.Join(t.TempDir(), "install.json")
+	record := installRecord{
+		Version:          installRecordVersion,
+		Channel:          "source",
+		SourcePath:       sourcePath,
+		BinaryPath:       filepath.Join(t.TempDir(), "thalweg"),
+		Commit:           commit,
+		InstalledVersion: "test",
+		InstalledAt:      time.Now().UTC(),
+	}
+	content, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("encode installation record: %v", err)
+	}
+	if err := os.WriteFile(recordPath, content, 0o600); err != nil {
+		t.Fatalf("write installation record: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourcePath, "local.txt"), []byte("dirty"), 0o600); err != nil {
+		t.Fatalf("dirty source checkout: %v", err)
+	}
+	t.Setenv("THALWEG_INSTALL_RECORD_PATH", recordPath)
+
+	var stdout, stderr bytes.Buffer
+	code := runCLI(
+		[]string{"upgrade", "--check"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 1 || !strings.Contains(stderr.String(), "source checkout has local changes") {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestUpgradeInstallsStaleCleanSource(t *testing.T) {
+	sourcePath, _ := createUpgradeTestRepository(t)
+	installRoot := t.TempDir()
+	recordPath := filepath.Join(installRoot, "install.json")
+	binaryPath := filepath.Join(installRoot, "bin", "thalweg")
+	record := installRecord{
+		Version:          installRecordVersion,
+		Channel:          "source",
+		SourcePath:       sourcePath,
+		BinaryPath:       binaryPath,
+		Commit:           "older-commit",
+		InstalledVersion: "test",
+		InstalledAt:      time.Now().UTC(),
+	}
+	content, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("encode installation record: %v", err)
+	}
+	if err := os.WriteFile(recordPath, content, 0o600); err != nil {
+		t.Fatalf("write installation record: %v", err)
+	}
+	t.Setenv("THALWEG_INSTALL_RECORD_PATH", recordPath)
+
+	var stdout, stderr bytes.Buffer
+	code := runCLI(
+		[]string{"upgrade", "--no-restart"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	marker := filepath.Join(filepath.Dir(binaryPath), "upgrade-marker")
+	if content, err := os.ReadFile(marker); err != nil || string(content) != "installed\n" {
+		t.Fatalf("upgrade marker content=%q err=%v", content, err)
+	}
+}
+
+func createUpgradeTestRepository(t *testing.T) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	remotePath := filepath.Join(root, "remote.git")
+	sourcePath := filepath.Join(root, "source")
+	runTestCommand(t, root, "git", "init", "--bare", remotePath)
+	runTestCommand(t, root, "git", "init", sourcePath)
+	runTestCommand(t, sourcePath, "git", "config", "user.email", "thalweg@example.test")
+	runTestCommand(t, sourcePath, "git", "config", "user.name", "Thalweg Test")
+	if err := os.MkdirAll(filepath.Join(sourcePath, "scripts"), 0o700); err != nil {
+		t.Fatalf("create test scripts directory: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(sourcePath, "scripts", "install.sh"),
+		[]byte("#!/bin/sh\nset -eu\nmkdir -p \"$THALWEG_INSTALL_DIR\"\nprintf 'installed\\n' >\"$THALWEG_INSTALL_DIR/upgrade-marker\"\n"),
+		0o700,
+	); err != nil {
+		t.Fatalf("write test installer: %v", err)
+	}
+	runTestCommand(t, sourcePath, "git", "add", "scripts/install.sh")
+	runTestCommand(t, sourcePath, "git", "commit", "-m", "initial")
+	runTestCommand(t, sourcePath, "git", "remote", "add", "origin", remotePath)
+	runTestCommand(t, sourcePath, "git", "push", "-u", "origin", "HEAD")
+	commit := strings.TrimSpace(runTestCommand(t, sourcePath, "git", "rev-parse", "HEAD"))
+	return sourcePath, commit
+}
+
+func runTestCommand(t *testing.T, directory, name string, args ...string) string {
+	t.Helper()
+	command := exec.Command(name, args...)
+	command.Dir = directory
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s %s: %v\n%s", name, strings.Join(args, " "), err, output)
+	}
+	return string(output)
 }
 
 func startFakeDaemon(

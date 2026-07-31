@@ -1,0 +1,42 @@
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: #292f3a;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top right, rgba(136, 192, 208, 0.08), transparent 34rem),
+    #292f3a;
+}
+
+.status-dot {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.flex-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.payload {
+  max-width: 34rem;
+  overflow-wrap: anywhere;
+  color: var(--mantine-color-dark-2);
+}
+
+@media (max-width: 48em) {
+  .mantine-Group-root {
+    row-gap: var(--mantine-spacing-sm);
+  }
+}

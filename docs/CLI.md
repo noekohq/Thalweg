@@ -30,7 +30,38 @@ THALWEG_INSTALL_DIR=/usr/local/bin ./scripts/install.sh
 
 The second form may require the directory to already be writable. The installer
 does not invoke `sudo`, edit `PATH`, change shell files, initialize storage, or
-register a system service.
+register a system service. If the installation directory is not already in
+`PATH`, the completion message prints a copy-pasteable `export PATH=...`
+command, notes that the same line belongs in the user's shell profile for
+future terminals, and then shows the `thalweg init` next step.
+
+The installer also writes a restricted source-channel record to
+`~/.local/share/thalweg/install.json`. It records the checkout, installed
+binary, source commit, and whether the build contained local changes. After the
+first install, each device can upgrade with:
+
+```bash
+thalweg upgrade
+```
+
+The command requires Git and Go. It refuses a dirty or divergent checkout,
+fetches the branch's configured upstream, permits only a fast-forward, builds
+to a temporary file beside the installed binary, and atomically replaces the
+binary only after a successful build. If the daemon was running, it is then
+gracefully restarted with its previous debug and log settings.
+
+Useful variants:
+
+```bash
+thalweg upgrade --check       # fetch and report without changing anything
+thalweg upgrade --no-restart  # install now, restart the daemon later
+thalweg upgrade --force       # rebuild the current upstream commit
+```
+
+This source channel is intended for the current development phase. The
+versioned installation record includes a `channel` field so a future
+release-binary channel can download signed artifacts and checksums behind the
+same `thalweg upgrade` command.
 
 ## Initialize and run
 
@@ -77,10 +108,19 @@ Or detach it:
 thalweg daemon -d
 ```
 
+The managed spelling starts detached by default:
+
+```bash
+thalweg daemon start
+```
+
+Use `thalweg daemon start --foreground` when a foreground process is preferred.
 Detached startup waits up to five seconds for `network_status` to succeed,
 prints the child PID, and appends stdout/stderr to
 `~/.local/share/thalweg/storage/daemon.log` by default. The log is created with
-mode `0600`. Select another path with:
+mode `0600`. Managed process metadata is written atomically with mode `0600` to
+`~/.local/share/thalweg/storage/daemon-state.json`. Select another log path
+with:
 
 ```bash
 thalweg daemon -d --log /path/to/thalweg.log
@@ -91,9 +131,23 @@ connection, discovery, enrollment, authentication, and synchronization traces.
 `thalweg status` preserves the complete flat `addresses` list and also reports
 `addressGroups` with `loopback`, `lan`, `public`, and `other` buckets.
 
-This is process detachment, not full service supervision: automatic login
-startup, restart-on-failure, upgrades, and uninstallation are still deferred.
-Use the printed PID with `kill PID` for a graceful SIGTERM shutdown.
+Manage the local process without retaining its printed PID:
+
+```bash
+thalweg daemon status
+thalweg daemon logs --lines 100
+thalweg daemon stop
+thalweg daemon restart
+```
+
+`daemon status` combines the restricted lifecycle state with a live
+`network_status` probe. `daemon stop` requests shutdown through the protected
+local socket and waits for both the socket and managed process state to
+disappear; it never sends a signal to a PID loaded from disk. `daemon restart`
+uses that same graceful path before starting another detached process.
+
+This is process management, not full service supervision: automatic login
+startup, restart-on-failure, upgrades, and uninstallation remain deferred.
 
 `thalweg start` is an alias with the same foreground and `-d` behavior. For
 development in a checkout, `go run . spawn` preserves the original relative
@@ -295,7 +349,13 @@ can already mount multiple isolated logical networks.
 ```text
 thalweg init
 thalweg daemon [-d] [--log PATH]
+thalweg daemon start [--foreground] [--log PATH]
+thalweg daemon stop [--timeout 10s]
+thalweg daemon restart [--timeout 10s] [--log PATH]
+thalweg daemon status
+thalweg daemon logs [--lines 100]
 thalweg status
+thalweg upgrade [--check] [--no-restart] [--force]
 thalweg network create NAME
 thalweg network invite NAME
 thalweg network listen NAME

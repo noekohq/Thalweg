@@ -2,3 +2,4 @@ thalweg
 storage/
 *.sock
 .DS_Store
+node_modules/

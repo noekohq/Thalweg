@@ -92,8 +92,8 @@ Implemented:
 - Manual-address enrollment fallback for routed/VPN/publicly reachable peers.
 - Structured `--debug` tracing plus raw-TCP versus libp2p dial diagnostics.
 - TCP source-port reuse disabled until hole punching is intentionally designed.
-- Foreground and readiness-checked detached daemon launch with restricted log
-  output.
+- Foreground and readiness-checked detached daemon launch, restricted
+  lifecycle state and logs, live process status, and graceful stop/restart.
 - Source-checkout installer targeting a user-selected binary directory.
 
 Prototype limitations:
@@ -191,9 +191,15 @@ Definition of done:
 - [x] Split construction, start, shutdown, and resource ownership into testable
   lifecycle operations.
 - [x] Add explicit Unix socket permissions and owned-socket safety.
+- [x] Add managed CLI start, live status, log inspection, daemon-mediated
+  graceful stop, and race-free restart.
+- [x] Add a versioned source-install record and safe `thalweg upgrade` flow
+  with dirty-tree refusal, upstream fast-forward checks, atomic installation,
+  and optional daemon restart.
 - [x] Add CLI/configuration support for socket and storage paths. Identity
   remains safely colocated with the selected storage root.
-- Package background service registration, upgrades, and uninstallation.
+- Package background service registration, signed release-binary upgrades,
+  and uninstallation.
 - Add size limits, request deadlines, structured errors, and structured logs.
 - Add socket integration tests for every action, malformed input, disconnects,
   subscription cleanup, and restarts.

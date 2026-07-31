@@ -48,6 +48,15 @@ func TestWebServerRequiresSessionTokenAndServesReadOnlySnapshot(t *testing.T) {
 	if index.Header().Get("Content-Security-Policy") == "" || index.Header().Get("X-Frame-Options") != "DENY" {
 		t.Fatalf("security headers = %#v", index.Header())
 	}
+	if strings.Contains(index.Header().Get("Content-Security-Policy"), "script-src 'self' 'unsafe-inline'") {
+		t.Fatalf("console scripts should not require unsafe-inline: %q", index.Header().Get("Content-Security-Policy"))
+	}
+
+	asset := httptest.NewRecorder()
+	handler.ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "/session/test-token/assets/app.js", nil))
+	if asset.Code != http.StatusOK || !strings.Contains(asset.Header().Get("Content-Type"), "javascript") {
+		t.Fatalf("asset response = %d %#v", asset.Code, asset.Header())
+	}
 
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/session/test-token/api/snapshot", nil))

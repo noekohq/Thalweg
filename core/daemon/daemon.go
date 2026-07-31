@@ -417,17 +417,27 @@ func (d *Daemon) Handle(conn net.Conn) {
 			continue
 		}
 
-		client.Encode(Response{
+		_ = client.Encode(Response{
 			ID:              msg.ID,
 			ProtocolVersion: currentLocalProtocolVersion,
 			Success:         true,
 			Data:            data,
 		})
+		if msg.Action == "daemon_shutdown" {
+			go func() {
+				_ = d.Close()
+			}()
+			return
+		}
 	}
 }
 
 func (d *Daemon) registerRoutes() {
 	d.registerEnrollmentRoutes()
+
+	d.Register("daemon_shutdown", func(_ *clientConn, _ json.RawMessage) (any, error) {
+		return map[string]any{"stopping": true}, nil
+	})
 
 	d.Register("network_status", func(_ *clientConn, _ json.RawMessage) (any, error) {
 		addrs := d.peerAddresses()

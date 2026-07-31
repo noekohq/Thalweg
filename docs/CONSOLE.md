@@ -50,8 +50,13 @@ Browser GUI ────┘
 - Adapter, offline/degraded-state, TUI rendering, loopback enforcement, token
   routing, method restriction, and diagnostics tests are automated.
 - Both frontends use a restrained Nord-inspired dark palette. The browser view
-  favors flat surfaces, subtle separators, and small recent-data windows so
-  node health stays readable without exposing every diagnostic at once.
+  is built with React and Mantine, using Mantine's layout, controls, cards,
+  alerts, and tables with a small Nord theme override. Its production assets
+  are compiled into the Go binary and do not depend on a runtime CDN.
+
+The browser source lives in `internal/console/webui`. After editing it, run
+`npm install`, `npm run check`, and `npm run build` there; the build writes the
+embedded production assets to `internal/console/web/assets`.
 
 This first implementation lives in the Go repository so the TUI and web
 sidecar can share one local IPC adapter and presentation model. A separate
