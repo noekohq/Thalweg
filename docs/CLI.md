@@ -33,7 +33,11 @@ does not invoke `sudo`, edit `PATH`, change shell files, initialize storage, or
 register a system service. If the installation directory is not already in
 `PATH`, the completion message prints a copy-pasteable `export PATH=...`
 command, notes that the same line belongs in the user's shell profile for
-future terminals, and then shows the `thalweg init` next step.
+future terminals, and then shows the appropriate next step. The installer
+reports whether it performed a first install, an update, or a same-version
+reinstall. If the device configuration already exists, it preserves and
+reports that path and suggests `thalweg daemon restart` instead of
+initialization.
 
 The installer also writes a restricted source-channel record to
 `~/.local/share/thalweg/install.json`. It records the checkout, installed

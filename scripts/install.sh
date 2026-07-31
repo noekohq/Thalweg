@@ -9,6 +9,8 @@ source_dir=${THALWEG_INSTALL_SOURCE_DIR:-"$repo_dir"}
 
 data_root=${XDG_DATA_HOME:-"$HOME/.local/share"}
 record_path=${THALWEG_INSTALL_RECORD_PATH:-"$data_root/thalweg/install.json"}
+config_root=${XDG_CONFIG_HOME:-"$HOME/.config"}
+config_path=${THALWEG_CONFIG_PATH:-"$config_root/thalweg/config.json"}
 
 if ! command -v go >/dev/null 2>&1; then
   echo "Thalweg requires Go to install from source." >&2
@@ -17,6 +19,21 @@ fi
 
 mkdir -p "$install_dir"
 install_dir=$(CDPATH= cd -- "$install_dir" && pwd)
+
+existing_install=false
+existing_version=
+if [ -e "$install_dir/thalweg" ]; then
+  existing_install=true
+  if [ -x "$install_dir/thalweg" ]; then
+    existing_version=$("$install_dir/thalweg" version 2>/dev/null || true)
+  fi
+fi
+
+initialized=false
+if [ -f "$config_path" ]; then
+  initialized=true
+fi
+
 temporary_binary=$(mktemp "$install_dir/.thalweg.XXXXXX")
 temporary_record=
 trap 'rm -f "${temporary_binary:-}" "${temporary_record:-}"' EXIT HUP INT TERM
@@ -69,15 +86,30 @@ chmod 0600 "$temporary_record"
 mv "$temporary_record" "$record_path"
 trap - EXIT HUP INT TERM
 
-printf '\nInstalled Thalweg.\n'
+case "$existing_install:$existing_version" in
+  "false:")
+    printf '\nInstalled Thalweg.\n'
+    printf '  Version: %s\n' "$installed_version"
+    ;;
+  "true:$installed_version")
+    printf '\nReinstalled Thalweg.\n'
+    printf '  Version: %s\n' "$installed_version"
+    ;;
+  "true:")
+    printf '\nReplaced an existing Thalweg installation.\n'
+    printf '  Installed version: %s\n' "$installed_version"
+    ;;
+  *)
+    printf '\nUpdated Thalweg.\n'
+    printf '  Previous version: %s\n' "$existing_version"
+    printf '  Installed version: %s\n' "$installed_version"
+    ;;
+esac
 printf '  Binary: %s/thalweg\n' "$install_dir"
 printf '  Upgrade record: %s\n' "$record_path"
 
 case ":${PATH:-}:" in
-  *":$install_dir:"*)
-    printf '\nNext, initialize this device:\n\n'
-    printf '  thalweg init\n'
-    ;;
+  *":$install_dir:"*) ;;
   *)
     printf '\nThe install directory is not currently in PATH.\n'
     printf 'To use Thalweg in this shell, run:\n\n'
@@ -86,7 +118,18 @@ case ":${PATH:-}:" in
     printf ':$PATH\n'
     printf '\nTo keep it available in new terminals, add that export line to your\n'
     printf 'shell profile (for example, ~/.zshrc or ~/.bashrc).\n'
-    printf '\nThen initialize this device:\n\n'
-    printf '  thalweg init\n'
     ;;
 esac
+
+if [ "$initialized" = true ]; then
+  printf '\nKept the existing device configuration:\n'
+  printf '  %s\n' "$config_path"
+  printf '\nStart or restart the daemon to use this build:\n\n'
+  printf '  thalweg daemon restart\n'
+else
+  case "$existing_install" in
+    true) printf '\nNo device configuration was found at %s.\n' "$config_path" ;;
+  esac
+  printf '\nNext, initialize this device:\n\n'
+  printf '  thalweg init\n'
+fi

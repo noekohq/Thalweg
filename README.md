@@ -32,7 +32,9 @@ edit shell startup files or install a background service. Set
 `THALWEG_INSTALL_DIR` to select another binary directory.
 When that directory is not already in `PATH`, the completion message prints an
 exact `export PATH=...` command for the current shell and explains how to make
-the setting persistent.
+the setting persistent. It also distinguishes a first install, an update, and
+a same-version reinstall. An existing device configuration is preserved and
+reported instead of suggesting initialization again.
 
 Each installation remembers its source checkout. On every device, later
 updates are:
