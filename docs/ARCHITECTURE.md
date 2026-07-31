@@ -84,6 +84,9 @@ The current daemon:
   envelopes and atomically stores the event/index while merging the remote HLC.
 - Exchanges bounded ID/digest inventories after network authentication and
   transfers missing envelopes bidirectionally.
+- Quarantines identity conflicts without blocking unrelated transfers and
+  resolves them losslessly through replicated audit events plus deterministic
+  recovered variant IDs.
 - Provides per-user initialization and native provisioning, event inspection,
   and authenticated peer commands over the documented local IPC contract.
 - Records source installations and provides clean, fast-forward-only,

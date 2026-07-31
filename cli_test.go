@@ -207,6 +207,34 @@ func TestEventIngestCommandPreservesStructuredPayload(t *testing.T) {
 	}
 }
 
+func TestEventConflictResolveCommandUsesDaemonIPC(t *testing.T) {
+	socketPath := startFakeDaemon(t, func(request ipcRequest) (any, string) {
+		if request.Action != "event_conflict_resolve" {
+			t.Fatalf("action = %q, want event_conflict_resolve", request.Action)
+		}
+		payload := request.Payload.(map[string]any)
+		if payload["network"] != "home" || payload["eventId"] != "collision" ||
+			payload["strategy"] != "preserve-both" {
+			t.Fatalf("payload = %#v", payload)
+		}
+		return map[string]any{"eventId": "collision", "strategy": "preserve-both"}, ""
+	})
+	setTestConfig(t, socketPath)
+
+	var stdout, stderr bytes.Buffer
+	code := runCLI([]string{
+		"event", "conflicts", "resolve",
+		"--network", "home",
+		"--id", "collision",
+	}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"strategy": "preserve-both"`) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
 func TestPeerSyncCommandMapsPublicFlags(t *testing.T) {
 	socketPath := startFakeDaemon(t, func(request ipcRequest) (any, string) {
 		if request.Action != "mesh_sync" {

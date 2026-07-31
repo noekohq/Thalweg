@@ -79,15 +79,23 @@ Synchronization continues on the authenticated stream and has message version
 `1`. It is bidirectional and inventory-first:
 
 1. The initiator offers sorted pages of `{id, digest}` entries.
-2. The responder reports missing IDs and same-ID digest conflicts.
+2. The responder reports missing IDs and quarantined same-ID digest conflicts.
 3. The initiator pushes only missing envelopes.
 4. The initiator pages through the responder inventory and requests its missing
    envelopes.
 5. Received envelopes enter the atomic replicated-event ingest boundary.
 
 Digests are SHA-256 over the canonical immutable envelope. A network/event ID
-with different content stops synchronization rather than being mistaken for
-convergence.
+with different content is reported but does not block unrelated transfers.
+Conflict observations are persisted locally for operator inspection.
+
+A `preserve-both` resolution is represented by a normal immutable event on the
+reserved `system:conflict_resolution` stream. Resolved nodes omit the poisoned
+original ID from inventories and advertise deterministic recovered copies of
+every locally held variant. A receiving node validates the resolution event,
+materializes its own variant, and then converges through the existing inventory
+protocol. This adds no privileged remote mutation frame and does not overwrite
+stored envelopes. See `CONFLICTS.md`.
 
 Current bounds:
 

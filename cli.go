@@ -96,6 +96,8 @@ Usage:
   thalweg console web [--network NAME] [--listen 127.0.0.1:42424]
   thalweg event ingest --network NAME --stream NAME --payload JSON
   thalweg event query --network NAME [--streams A,B] [--from TIME] [--to TIME]
+  thalweg event conflicts list --network NAME
+  thalweg event conflicts resolve --network NAME --id EVENT_ID
   thalweg peer dial --network NAME --address MULTIADDR
   thalweg peer sync --network NAME --address MULTIADDR
   thalweg join [--address MULTIADDR] [--debug]
@@ -683,7 +685,7 @@ func emptyFallback(value, fallback string) string {
 
 func runEvent(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: thalweg event [ingest | query]")
+		return fmt.Errorf("usage: thalweg event [ingest | query | conflicts]")
 	}
 	switch args[0] {
 	case "ingest":
@@ -745,8 +747,54 @@ func runEvent(args []string, stdout, stderr io.Writer) error {
 			"to":      *to,
 			"limit":   *limit,
 		}, stdout)
+	case "conflicts":
+		return runEventConflicts(args[1:], stdout, stderr)
 	default:
 		return fmt.Errorf("unknown event command %q", args[0])
+	}
+}
+
+func runEventConflicts(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: thalweg event conflicts [list | resolve]")
+	}
+	flags := flag.NewFlagSet("event conflicts "+args[0], flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	socket := flags.String("socket", "", "Unix socket path")
+	network := flags.String("network", "", "logical network name")
+	switch args[0] {
+	case "list":
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 {
+			return fmt.Errorf("event conflicts list does not accept positional arguments")
+		}
+		if *network == "" {
+			return fmt.Errorf("--network is required")
+		}
+		return invokeAndPrint(*socket, "event_conflict_list", map[string]any{
+			"network": *network,
+		}, stdout)
+	case "resolve":
+		eventID := flags.String("id", "", "conflicting network-unique event ID")
+		strategy := flags.String("strategy", "preserve-both", "resolution strategy")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 {
+			return fmt.Errorf("event conflicts resolve does not accept positional arguments")
+		}
+		if *network == "" || *eventID == "" {
+			return fmt.Errorf("--network and --id are required")
+		}
+		return invokeAndPrint(*socket, "event_conflict_resolve", map[string]any{
+			"network":  *network,
+			"eventId":  *eventID,
+			"strategy": *strategy,
+		}, stdout)
+	default:
+		return fmt.Errorf("unknown event conflicts command %q", args[0])
 	}
 }
 

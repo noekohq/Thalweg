@@ -122,6 +122,8 @@ Implemented:
   actions.
 - Manual and startup-triggered bidirectional synchronization with digest
   conflict detection.
+- Lossless preserve-both conflict resolution with replicated audit events,
+  deterministic recovered IDs, and logical-history convergence.
 
 Not implemented:
 
@@ -244,6 +246,8 @@ Definition of done:
 - [x] Exchange bounded inventories and replicate missing events.
 - [x] Deduplicate replicated events using canonical identity and envelope
   digests.
+- [x] Quarantine conflicting IDs without blocking unrelated synchronization and
+  provide lossless operator-driven preserve-both resolution.
 - [x] Merge clocks and events deterministically after partitions.
 - Resume interrupted synchronization without restarting from the beginning.
 - Expose synchronization progress, peer health, and last convergence state.

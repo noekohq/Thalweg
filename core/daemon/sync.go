@@ -466,6 +466,7 @@ func (d *Daemon) compareInventory(
 	}
 	var missing []string
 	var conflicts []string
+	var observations []conflictObservation
 	err := d.store.View(func(txn *badger.Txn) error {
 		for _, entry := range entries {
 			event, err := findEventByID(txn, networkName, entry.ID)
@@ -482,11 +483,22 @@ func (d *Daemon) compareInventory(
 			}
 			if digest != entry.Digest {
 				conflicts = append(conflicts, entry.ID)
+				observations = append(observations, conflictObservation{
+					EventID:      entry.ID,
+					LocalDigest:  digest,
+					RemoteDigest: entry.Digest,
+				})
 			}
 		}
 		return nil
 	})
-	return missing, conflicts, err
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := d.recordEventConflicts(networkName, observations); err != nil {
+		return nil, nil, err
+	}
+	return missing, conflicts, nil
 }
 
 func (d *Daemon) eventsByIDs(networkName string, ids []string) ([]ThalwegEvent, error) {

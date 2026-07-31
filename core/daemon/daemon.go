@@ -215,6 +215,11 @@ func NewWithConfig(config Config) (*Daemon, error) {
 	d.p2p.SetStreamHandler(meshProtocolID, d.handleMeshStream)
 	d.p2p.SetStreamHandler(enrollmentProtocolID, d.handleEnrollmentStream)
 	d.registerRoutes()
+	if err := d.reconcileConflictResolutions(); err != nil {
+		_ = node.Close()
+		_ = db.Close()
+		return nil, fmt.Errorf("reconcile event conflict resolutions: %w", err)
+	}
 
 	return d, nil
 }
@@ -542,6 +547,28 @@ func (d *Daemon) registerRoutes() {
 		return d.query(args.Network, args.Streams, args.From, args.To, args.Limit)
 	})
 
+	d.Register("event_conflict_list", func(_ *clientConn, payload json.RawMessage) (any, error) {
+		var args struct {
+			Network string `json:"network"`
+		}
+		if err := json.Unmarshal(payload, &args); err != nil {
+			return nil, err
+		}
+		return d.listEventConflicts(args.Network)
+	})
+
+	d.Register("event_conflict_resolve", func(_ *clientConn, payload json.RawMessage) (any, error) {
+		var args struct {
+			Network  string `json:"network"`
+			EventID  string `json:"eventId"`
+			Strategy string `json:"strategy"`
+		}
+		if err := json.Unmarshal(payload, &args); err != nil {
+			return nil, err
+		}
+		return d.resolveEventConflict(args.Network, args.EventID, args.Strategy)
+	})
+
 	d.Register("siphon_register", func(client *clientConn, payload json.RawMessage) (any, error) {
 		var args struct {
 			Network string   `json:"network"`
@@ -767,6 +794,13 @@ func (d *Daemon) debugTCPProbe(target string, enabled bool) string {
 }
 
 func (d *Daemon) ingest(networkName, stream, occurredAt, eventID string, payload json.RawMessage) (ThalwegEvent, error) {
+	if stream == conflictResolutionStream {
+		return ThalwegEvent{}, fmt.Errorf("stream %q is reserved; use event conflict resolution", conflictResolutionStream)
+	}
+	return d.ingestInternal(networkName, stream, occurredAt, eventID, payload)
+}
+
+func (d *Daemon) ingestInternal(networkName, stream, occurredAt, eventID string, payload json.RawMessage) (ThalwegEvent, error) {
 	if networkName == "" {
 		return ThalwegEvent{}, fmt.Errorf("network is required")
 	}
@@ -864,9 +898,12 @@ func (d *Daemon) ingestReplicated(incoming ThalwegEvent) (ThalwegEvent, bool, er
 	if err != nil {
 		return ThalwegEvent{}, false, err
 	}
+	resolution, isResolution, err := parseConflictResolution(event)
+	if err != nil {
+		return ThalwegEvent{}, false, err
+	}
 
 	d.ingestMu.Lock()
-	defer d.ingestMu.Unlock()
 
 	created := false
 	var nextClockState hlcTimestamp
@@ -909,12 +946,22 @@ func (d *Daemon) ingestReplicated(incoming ThalwegEvent) (ThalwegEvent, bool, er
 		return nil
 	})
 	if err != nil {
+		d.ingestMu.Unlock()
 		return ThalwegEvent{}, false, err
 	}
 
 	if created {
 		d.hlc.commit(nextClockState)
+	}
+	d.ingestMu.Unlock()
+
+	if created {
 		d.broadcast(event)
+	}
+	if isResolution {
+		if _, _, err := d.materializeConflictVariant(event.Network, resolution.EventID); err != nil {
+			return ThalwegEvent{}, false, err
+		}
 	}
 	return event, created, nil
 }
@@ -1092,6 +1139,10 @@ func (d *Daemon) query(networkName string, streams []string, from string, to str
 
 	events := make([]ThalwegEvent, 0)
 	err := d.store.View(func(txn *badger.Txn) error {
+		resolutions, err := conflictResolutionsTxn(txn, networkName)
+		if err != nil {
+			return err
+		}
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 
@@ -1103,6 +1154,9 @@ func (d *Daemon) query(networkName string, streams []string, from string, to str
 					var event ThalwegEvent
 					if err := json.Unmarshal(val, &event); err != nil {
 						return err
+					}
+					if _, superseded := resolutions[event.ID]; superseded {
+						return nil
 					}
 					normalized, err := normalizeTimestamp("stored occurredAt", event.OccurredAt)
 					if err != nil {

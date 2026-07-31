@@ -297,6 +297,23 @@ thalweg event query \
   --limit 100
 ```
 
+Inspect event-ID conflicts observed during synchronization:
+
+```bash
+thalweg event conflicts list --network home
+```
+
+Resolve a conflict without discarding either envelope:
+
+```bash
+thalweg event conflicts resolve --network home --id COLLIDED_ID
+thalweg peer sync --network home --address MULTIADDR
+```
+
+The current `preserve-both` strategy emits a replicated audit event,
+deterministically rekeys each immutable variant, and supersedes the collided ID
+from ordinary queries and inventories. See `CONFLICTS.md`.
+
 ## Two-device synchronization
 
 Run `thalweg status` on the target device and select its LAN-reachable address,
@@ -324,6 +341,7 @@ thalweg peer sync \
 ```
 
 The response reports `pushed`, `pulled`, `duplicates`, and inventory counts.
+Conflicting IDs appear in `conflicts` but do not block unrelated transfers.
 Run it a second time; a converged pair should report zero pushed and pulled
 events.
 
@@ -403,6 +421,8 @@ thalweg console [tui] [--network NAME]
 thalweg console web [--network NAME] [--listen 127.0.0.1:42424]
 thalweg event ingest --network NAME --stream NAME --payload JSON
 thalweg event query --network NAME
+thalweg event conflicts list --network NAME
+thalweg event conflicts resolve --network NAME --id EVENT_ID
 thalweg peer dial --network NAME --address MULTIADDR
 thalweg peer sync --network NAME --address MULTIADDR
 thalweg version

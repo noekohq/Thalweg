@@ -70,6 +70,8 @@ p2p scaffold.
   again, and does not advance the HLC.
 - Reusing a network/event ID with any different immutable envelope field is a
   conflict.
+- Observed conflicts are quarantined during synchronization: unrelated events
+  continue replicating while the conflicting ID is reported to operators.
 - A validation, conflict, storage, or clock-merge failure leaves the event,
   index, and HLC unchanged.
 
@@ -93,6 +95,24 @@ Event IDs are unique within one logical network, including across streams.
 The current implementation resolves identity through a network/event-ID
 secondary index. Local and replicated ingestion remain serialized while
 advancing the HLC so the event, ID index, and next clock state commit atomically.
+
+## Conflict Resolution Overlay
+
+The lossless `preserve-both` workflow resolves an identity collision without
+rewriting either stored envelope. A replicated `system:conflict_resolution`
+audit event logically supersedes the collided ID. Each variant is copied to a
+deterministic recovered ID derived from the network, original ID, and canonical
+envelope digest. The copy preserves stream, payload, timestamps, counter, and
+origin device.
+
+Ordinary queries and synchronization inventories omit a superseded original
+ID, while its physical event and ID index remain intact. They include the
+resolution event and all recovered variants, allowing authorized nodes to
+converge on one lossless logical history. Local conflict observations use
+versioned `event-conflict-v1:` metadata keys and are not themselves replicated;
+the immutable resolution event carries the decision across the mesh.
+
+See `docs/CONFLICTS.md` for the operator flow and live-subscription caveats.
 
 ## Current Badger Key
 
@@ -129,6 +149,12 @@ The current storage compatibility marker is:
 ```text
 meta:storage-schema-version = 3
 meta:hlc-state = {"physical":"2026-07-30T19:00:00.000000000Z","logical":3}
+```
+
+Observed event conflicts use an additive versioned metadata namespace:
+
+```text
+event-conflict-v1:{networkB64}:{eventIdB64}:{remoteDigest} = observation JSON
 ```
 
 The daemon treats prototype databases without a marker as schema `1`, migrates

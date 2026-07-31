@@ -80,6 +80,45 @@ Query bounds may use any valid RFC3339/RFC3339Nano offset or fractional
 precision. Results contain canonical UTC timestamps and are returned in
 ascending chronological order.
 
+Resolved collision originals are omitted from ordinary queries. Their
+immutable recovered variants and `system:conflict_resolution` audit event are
+returned normally.
+
+### `event_conflict_list`
+
+Payload:
+
+```json
+{"network":"home"}
+```
+
+Returns conflicts observed during authenticated inventory comparison. Each
+record includes the event ID, local and remote digests, first observation time,
+resolution state, and recovered local event ID when resolved. An empty result
+is `[]`.
+
+### `event_conflict_resolve`
+
+Payload:
+
+```json
+{
+  "network":"home",
+  "eventId":"collided-id",
+  "strategy":"preserve-both"
+}
+```
+
+The event must have a persisted conflict observation. `preserve-both` is the
+only supported strategy. The daemon emits an immutable resolution audit event
+and deterministically materializes the local variant under a recovered ID. It
+does not overwrite or delete the collided event. Repeating an already resolved
+operation is idempotent and reports `alreadyResolved: true`.
+
+The exact `system:conflict_resolution` stream is reserved from public
+`event_ingest`; authenticated replicas validate its versioned payload before
+applying it. See `docs/CONFLICTS.md`.
+
 ### `siphon_register`
 
 Payload:
@@ -274,7 +313,8 @@ Payload matches `mesh_dial`:
 After authenticating the selected network, both peers exchange bounded
 event-ID/digest inventory pages and transfer only missing events in both
 directions. The response reports `peerId`, the redacted network membership,
-`inventoried`, `pushed`, `pulled`, and `duplicates` counts.
+`inventoried`, `pushed`, `pulled`, and `duplicates` counts. A non-empty
+`conflicts` array reports quarantined IDs without aborting unrelated transfer.
 
 The synchronized peer address is persisted for automatic reconnection and
 another synchronization at daemon startup.

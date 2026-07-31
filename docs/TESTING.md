@@ -45,6 +45,8 @@ The synchronization suite covers:
 - Multiple inventory pages in both directions.
 - Exact replay without event retransmission.
 - Same-ID/different-envelope conflict detection.
+- Conflict observation persistence, lossless preserve-both resolution,
+  recovered-variant convergence, and restart survival.
 - Interrupted partial delivery followed by convergence.
 - Simultaneous sessions initiated by both peers.
 - Oversized page rejection without partial delivery.

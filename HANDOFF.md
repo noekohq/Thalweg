@@ -4,9 +4,10 @@ Last reviewed: 2026-07-30
 
 ## Current State
 
-This repository contains a working local MVP, not the complete distributed
-architecture. The daemon can ingest, persist, query, and live-push events over a
-Unix socket. It starts a libp2p host, but events do not replicate between peers.
+This repository contains a working local-first mesh MVP, not the complete
+distributed architecture. The daemon can ingest, persist, query, live-push,
+authenticate peers, enroll devices, and synchronize events over explicit and
+startup-restored connections.
 
 The companion SDK is https://github.com/noekohq/thalweg-js.
 
@@ -37,6 +38,8 @@ Important entry points:
 - `core/daemon/enrollment.go`: mDNS discovery, time-bounded offers, pending
   approval, credential delivery, and initial sync.
 - `core/daemon/sync.go`: inventory/digest comparison and event transfer.
+- `core/daemon/conflicts.go`: persisted conflict observations, replicated
+  preserve-both resolutions, deterministic recovery, and query supersession.
 - `core/daemon/version.go`: daemon/protocol constants and storage compatibility.
 - `core/daemon/daemon_test.go`: current automated coverage.
 - `core/daemon/lifecycle_test.go`: identity, restart, and socket lifecycle tests.
@@ -78,6 +81,9 @@ creates one `insights:summary` event, and all four print chronologically.
 
 - Authenticated synchronization invokes the atomic replicated-event ingest
   path, but inventory construction still scans full network history in memory.
+- Conflict resolution is currently lossless `preserve-both` only. Winner
+  selection, semantic merge, undo, and subscriber retraction are intentionally
+  deferred; see `docs/CONFLICTS.md`.
 - Local ingestion is serialized while advancing the persistent HLC; this may
   become a throughput bottleneck under high-volume concurrent producers.
 - Multi-stream queries sort decoded events in memory.

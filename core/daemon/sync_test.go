@@ -139,6 +139,73 @@ func TestSynchronizePeerQuarantinesSameIDConflictAndConvergesOtherEvents(t *test
 	assertEventCount(t, second, "home", 3)
 	assertEventPayloadOwner(t, first, "home", "first")
 	assertEventPayloadOwner(t, second, "home", "second")
+
+	firstConflicts, err := first.listEventConflicts("home")
+	if err != nil {
+		t.Fatalf("list first conflicts: %v", err)
+	}
+	secondConflicts, err := second.listEventConflicts("home")
+	if err != nil {
+		t.Fatalf("list second conflicts: %v", err)
+	}
+	if len(firstConflicts) != 1 || firstConflicts[0].EventID != "collision" || firstConflicts[0].Resolved {
+		t.Fatalf("first conflict list = %#v", firstConflicts)
+	}
+	if len(secondConflicts) != 1 || secondConflicts[0].EventID != "collision" || secondConflicts[0].Resolved {
+		t.Fatalf("second conflict list = %#v", secondConflicts)
+	}
+
+	resolution, err := first.resolveEventConflict("home", "collision", conflictResolutionStrategy)
+	if err != nil {
+		t.Fatalf("resolve conflict: %v", err)
+	}
+	if resolution.AlreadyResolved || resolution.RecoveredEvent.ID == "collision" {
+		t.Fatalf("resolution result = %#v", resolution)
+	}
+	repeatedResolution, err := first.resolveEventConflict("home", "collision", conflictResolutionStrategy)
+	if err != nil {
+		t.Fatalf("repeat conflict resolution: %v", err)
+	}
+	if !repeatedResolution.AlreadyResolved || repeatedResolution.RecoveredEvent.ID != resolution.RecoveredEvent.ID ||
+		repeatedResolution.ResolutionEvent.ID != resolution.ResolutionEvent.ID {
+		t.Fatalf("repeated resolution result = %#v", repeatedResolution)
+	}
+	resolvedSync, err := first.synchronizePeer(ctx, second.p2p.ID(), "home")
+	if err != nil {
+		t.Fatalf("synchronize resolution: %v", err)
+	}
+	if len(resolvedSync.Conflicts) != 0 || resolvedSync.Pushed != 2 || resolvedSync.Pulled != 1 {
+		t.Fatalf("resolved sync result = %#v, want 2 pushed and 1 pulled", resolvedSync)
+	}
+	assertMatchingVisibleHistories(t, first, second, "home")
+	assertEventIDAbsent(t, first, "home", "collision")
+	assertEventIDAbsent(t, second, "home", "collision")
+
+	resolvedConflicts, err := second.listEventConflicts("home")
+	if err != nil {
+		t.Fatalf("list resolved conflicts: %v", err)
+	}
+	if len(resolvedConflicts) != 1 || !resolvedConflicts[0].Resolved || resolvedConflicts[0].RecoveredEventID == "" {
+		t.Fatalf("resolved conflict list = %#v", resolvedConflicts)
+	}
+	converged, err := first.synchronizePeer(ctx, second.p2p.ID(), "home")
+	if err != nil {
+		t.Fatalf("repeat resolved synchronization: %v", err)
+	}
+	if len(converged.Conflicts) != 0 || converged.Pushed != 0 || converged.Pulled != 0 {
+		t.Fatalf("resolved histories did not remain converged: %#v", converged)
+	}
+}
+
+func TestResolveEventConflictRejectsUnobservedEvent(t *testing.T) {
+	d := newTestDaemon(t)
+	if _, err := d.ingest("test", "notes", "", "ordinary", json.RawMessage(`{"value":1}`)); err != nil {
+		t.Fatalf("ingest ordinary event: %v", err)
+	}
+	if _, err := d.resolveEventConflict("test", "ordinary", conflictResolutionStrategy); err == nil ||
+		!strings.Contains(err.Error(), "no observed conflict") {
+		t.Fatalf("unobserved resolution error = %v", err)
+	}
 }
 
 func TestSynchronizePeerResumesAfterPartialDelivery(t *testing.T) {
@@ -393,5 +460,46 @@ func assertEventPayloadOwner(t *testing.T, d *Daemon, networkName string, want s
 	}
 	if payload.Owner != want {
 		t.Fatalf("conflict payload owner = %q, want %q", payload.Owner, want)
+	}
+}
+
+func assertMatchingVisibleHistories(t *testing.T, first, second *Daemon, networkName string) {
+	t.Helper()
+	firstEvents, err := first.query(networkName, nil, "", "", 0)
+	if err != nil {
+		t.Fatalf("query first history: %v", err)
+	}
+	secondEvents, err := second.query(networkName, nil, "", "", 0)
+	if err != nil {
+		t.Fatalf("query second history: %v", err)
+	}
+	if len(firstEvents) != len(secondEvents) {
+		t.Fatalf("visible history lengths differ: %d != %d", len(firstEvents), len(secondEvents))
+	}
+	for index := range firstEvents {
+		firstDigest, err := eventDigest(firstEvents[index])
+		if err != nil {
+			t.Fatalf("digest first event: %v", err)
+		}
+		secondDigest, err := eventDigest(secondEvents[index])
+		if err != nil {
+			t.Fatalf("digest second event: %v", err)
+		}
+		if firstEvents[index].ID != secondEvents[index].ID || firstDigest != secondDigest {
+			t.Fatalf("histories differ at %d: %#v != %#v", index, firstEvents[index], secondEvents[index])
+		}
+	}
+}
+
+func assertEventIDAbsent(t *testing.T, d *Daemon, networkName, eventID string) {
+	t.Helper()
+	events, err := d.query(networkName, nil, "", "", 0)
+	if err != nil {
+		t.Fatalf("query visible history: %v", err)
+	}
+	for _, event := range events {
+		if event.ID == eventID {
+			t.Fatalf("superseded event %q remains visible", eventID)
+		}
 	}
 }
