@@ -330,11 +330,14 @@ development harness. Their detailed product and security specification lives in
 
 ### Console 0: Local Observer
 
-- Run a local sidecar and browser UI on each development device.
-- Show daemon availability, identity, addresses, versions, and feature support.
-- Browse recent events and observe a live local subscription.
-- Keep the default surface read-only and bound to loopback.
-- Export a redacted diagnostics bundle.
+- [x] Run a local sidecar and browser UI on each development device.
+- [x] Provide a Bubble Tea TUI over the same observer model.
+- [x] Show daemon availability, identity, addresses, versions, memberships,
+  stream summaries, and feature support.
+- [x] Browse a bounded recent diagnostic event window.
+- Add a live local subscription and cursor-based event pagination.
+- [x] Keep the default surface read-only and the web sidecar bound to loopback.
+- [x] Export a redacted snapshot diagnostics bundle.
 
 ### Mesh Lab 1: Two-Device Test Harness
 

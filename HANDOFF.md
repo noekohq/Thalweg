@@ -17,6 +17,9 @@ Important entry points:
   commands.
 - `cli_config.go`: per-user config resolution and restricted atomic writes.
 - `cli_ipc.go`: bounded local CLI request/response client.
+- `cli_console.go`: TUI and loopback web-console CLI entry points.
+- `internal/console`: shared read-only daemon adapter, snapshot model, Bubble
+  Tea TUI, embedded browser UI, security-sensitive routing, and tests.
 - `scripts/install.sh`: local source-checkout installer.
 - `docs/CLI.md`: install and two-device operator workflow.
 - `docs/ENROLLMENT.md`: discovery/enrollment state machine and limitations.
@@ -90,6 +93,11 @@ creates one `insights:summary` event, and all four print chronologically.
   still receive the same version-1 shared secret.
 - TCP source-port reuse is disabled. Re-enable it only with tested hole
   punching and same-port macOS acceptance coverage.
+- Console event inspection is a bounded 24-hour diagnostic query, not
+  cursor-based pagination or a complete newest-first event browser.
+- Peer health, topology edges, synchronization status, storage summaries, and
+  processing health remain unavailable daemon read contracts and are shown as
+  unsupported by both console frontends.
 - `data/event.proto` is reserved but currently empty.
 - `test.go` is a standalone historical libp2p experiment.
 

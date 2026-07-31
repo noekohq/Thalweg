@@ -241,6 +241,41 @@ Continuous live fanout and periodic retry are not implemented. Run `peer sync`
 after new events or reconnection. A remembered peer is also synchronized when
 the daemon starts and its stable address is reachable.
 
+## Console
+
+Launch the read-only Bubble Tea console:
+
+```bash
+thalweg console
+```
+
+`thalweg console tui` is the explicit equivalent. Use left/right to select a
+mounted network, `j`/`k` to scroll, `r` to refresh, and `q` to quit:
+
+```bash
+thalweg console tui --network home --refresh 2s
+```
+
+Launch the browser console:
+
+```bash
+thalweg console web
+```
+
+The command binds to `127.0.0.1:42424`, prints a randomized session URL, and
+serves the same observer snapshot as the TUI. It refuses non-loopback listen
+addresses. Choose another loopback port or initial network with:
+
+```bash
+thalweg console web --listen 127.0.0.1:43424 --network home
+```
+
+Both interfaces are read-only. They use `network_status`, `network_list`, and
+`event_query` over the public daemon socket; they never read BadgerDB,
+membership files, or logs directly. Diagnostics exports redact event payloads.
+Recent events are currently limited to the first 100 events in a 24-hour
+diagnostic window because cursor-based dashboard queries are not implemented.
+
 ## Configuration precedence
 
 Client and daemon commands resolve values in this order:
@@ -267,6 +302,8 @@ thalweg network listen NAME
 thalweg network join [INVITATION]
 thalweg join [--address MULTIADDR] [--debug]
 thalweg network list
+thalweg console [tui] [--network NAME]
+thalweg console web [--network NAME] [--listen 127.0.0.1:42424]
 thalweg event ingest --network NAME --stream NAME --payload JSON
 thalweg event query --network NAME
 thalweg peer dial --network NAME --address MULTIADDR

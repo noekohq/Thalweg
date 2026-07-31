@@ -46,6 +46,8 @@ func runCLI(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = runNetwork(args[1:], stdin, stdout, stderr)
 	case "join":
 		err = runEnrollmentJoin(args[1:], stdin, stdout, stderr)
+	case "console":
+		err = runConsole(args[1:], stdin, stdout, stderr)
 	case "event":
 		err = runEvent(args[1:], stdout, stderr)
 	case "peer":
@@ -74,6 +76,8 @@ Usage:
   thalweg network listen NAME [--duration 10m] [--debug]
   thalweg network join [INVITATION]
   thalweg network list
+  thalweg console [tui] [--network NAME]
+  thalweg console web [--network NAME] [--listen 127.0.0.1:42424]
   thalweg event ingest --network NAME --stream NAME --payload JSON
   thalweg event query --network NAME [--streams A,B] [--from TIME] [--to TIME]
   thalweg peer dial --network NAME --address MULTIADDR

@@ -29,6 +29,12 @@ The Go repository also owns a thin operator CLI. Its `network`, `event`,
 opening storage directly. This keeps manual provisioning behavior aligned with
 the SDK while allowing a node to be installed and operated without JavaScript.
 
+The repository now also owns the initial read-only Console implementation. A
+shared observer model calls only documented local IPC actions and feeds both a
+Bubble Tea TUI and a tokenized loopback HTTP sidecar with an embedded browser
+UI. Neither frontend opens storage, membership files, or daemon logs directly.
+Mesh Lab operations remain deferred.
+
 ## Intended Data Flow
 
 ```text

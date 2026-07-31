@@ -81,7 +81,7 @@ and `thalweg daemon`; see `docs/CLI.md`.
 
 Do not describe these as implemented:
 
-- Continuous p2p fanout, mDNS, GossipSub, or swarm-key isolation.
+- Continuous p2p fanout, GossipSub, or swarm-key isolation.
 - Membership rotation, revocation, or invitation expiry.
 - Physical per-network Badger databases.
 - TTL retention, dirty-window tracking, or recomputation.
@@ -90,7 +90,11 @@ Do not describe these as implemented:
 
 The daemon currently has persisted identity and HLC state, authenticated
 multi-network membership, bounded bidirectional synchronization, one Badger
-database, manual/startup peer sync, and in-memory live subscriptions.
+database, approval-based mDNS enrollment, manual/startup peer sync, and
+in-memory live subscriptions. The read-only Console has Bubble Tea and
+loopback-browser frontends over one shared public-IPC observer model; peer
+health, sync state, live tail, pagination, and Mesh Lab controls remain future
+work.
 
 ## Change Discipline
 

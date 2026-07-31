@@ -286,6 +286,34 @@ func TestDetachedDaemonArgsPropagateDebug(t *testing.T) {
 	}
 }
 
+func TestConsoleWebRejectsNetworkAccessibleListenAddress(t *testing.T) {
+	setTestConfig(t, "/tmp/thalweg-console-test.sock")
+	var stdout, stderr bytes.Buffer
+	code := runCLI(
+		[]string{"console", "web", "--listen", "0.0.0.0:42424"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 1 || !strings.Contains(stderr.String(), "may only listen on loopback") {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestConsoleTUIRejectsUnsafeRefreshInterval(t *testing.T) {
+	setTestConfig(t, "/tmp/thalweg-console-test.sock")
+	var stdout, stderr bytes.Buffer
+	code := runCLI(
+		[]string{"console", "tui", "--refresh", "10ms"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 1 || !strings.Contains(stderr.String(), "--refresh must be between") {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestOpenDaemonLogIsRestrictedAndRejectsSymlink(t *testing.T) {
 	root := t.TempDir()
 	logPath := filepath.Join(root, "logs", "daemon.log")

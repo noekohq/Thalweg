@@ -26,6 +26,46 @@ development-only **Mesh Lab**.
 This can eventually become a packaged desktop application. The first version
 should optimize for running the same code on two MacBooks during development.
 
+## Current Implementation
+
+Console 0 now has one shared Go observer model and two frontend options:
+
+```text
+Bubble Tea TUI ─┐
+                ├─ shared read-only snapshot ─ documented daemon IPC
+Browser GUI ────┘
+```
+
+- `thalweg console` or `thalweg console tui` launches the terminal interface.
+- `thalweg console web` launches the local browser sidecar.
+- Both show daemon availability, identity, versions, memberships, addresses,
+  recent-window stream summaries, events, feature support, and explicit
+  prototype limitations.
+- The TUI refreshes automatically, retains a fixed node/network header, scrolls
+  with `j`/`k`, and changes networks with left/right.
+- The browser sidecar binds only to loopback, generates a randomized session
+  URL, adds restrictive response headers, treats payloads as inert text, and
+  exports the current snapshot as diagnostics JSON with event payloads
+  redacted.
+- Adapter, offline/degraded-state, TUI rendering, loopback enforcement, token
+  routing, method restriction, and diagnostics tests are automated.
+- Both frontends use a restrained Nord-inspired dark palette. The browser view
+  favors flat surfaces, subtle separators, and small recent-data windows so
+  node health stays readable without exposing every diagnostic at once.
+
+This first implementation lives in the Go repository so the TUI and web
+sidecar can share one local IPC adapter and presentation model. A separate
+TypeScript/SDK package remains an option when the daemon administration
+contracts and desktop packaging stabilize.
+
+Not yet implemented from Console 0:
+
+- Live subscription/tail in either frontend.
+- Cursor-based pagination or true newest-first daemon queries.
+- Daemon uptime, storage aggregates, peer health, synchronization state, or
+  topology edges; these are labeled unsupported instead of inferred.
+- Mesh Lab or any state-changing console operation.
+
 ## Goals
 
 - Make the current local daemon inspectable without reading BadgerDB or logs.
@@ -115,6 +155,9 @@ Recommended first implementation:
 - It converts daemon subscription pushes into a browser event stream.
 - It stores no authoritative Thalweg state.
 - Each MacBook runs its own daemon, sidecar, and local browser.
+
+The current Go sidecar preserves these security and deployment properties while
+also supplying the Bubble Tea frontend from the same observer model.
 
 The Console should eventually live in a separate `thalweg-console` repository
 or package. It must not be linked into the daemon process or allowed to become

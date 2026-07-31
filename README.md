@@ -94,6 +94,21 @@ credential rather than creating a revocable token.
 See [CLI and local installation](docs/CLI.md) for all commands and the
 two-device workflow.
 
+## Local console
+
+The same read-only dashboard is available as a Bubble Tea terminal UI or a
+loopback-only browser UI:
+
+```bash
+thalweg console
+thalweg console web
+```
+
+Both surfaces show daemon state, identity, versions, mounted networks,
+advertised addresses, streams, recent events, capability gaps, and prototype
+warnings. The web command prints a randomized local session URL and never binds
+beyond loopback. See [Console and Mesh Lab](docs/CONSOLE.md).
+
 ## Development run
 
 The source-tree-compatible command remains:
