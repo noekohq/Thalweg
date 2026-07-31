@@ -680,6 +680,158 @@ func TestUpgradeInstallsStaleCleanSource(t *testing.T) {
 	}
 }
 
+func TestDoctorReportsHealthyRunningDaemonAsJSON(t *testing.T) {
+	socketFile, err := os.CreateTemp("", "thalweg-doctor-*.sock")
+	if err != nil {
+		t.Fatalf("reserve doctor socket: %v", err)
+	}
+	socketPath := socketFile.Name()
+	if err := socketFile.Close(); err != nil {
+		t.Fatalf("close doctor socket reservation: %v", err)
+	}
+	if err := os.Remove(socketPath); err != nil {
+		t.Fatalf("remove doctor socket reservation: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Remove(socketPath)
+	})
+	setTestConfig(t, socketPath)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	config, _, err := loadLocalConfig()
+	if err != nil {
+		t.Fatalf("load doctor test config: %v", err)
+	}
+	if err := os.Chmod(filepath.Dir(config.StoragePath), 0o700); err != nil {
+		t.Fatalf("restrict doctor test storage: %v", err)
+	}
+	d, err := coredaemon.NewWithConfig(coredaemon.Config{
+		SocketPath:         config.SocketPath,
+		DBPath:             config.StoragePath,
+		P2PListenAddresses: config.P2PListenAddresses,
+	})
+	if err != nil {
+		t.Fatalf("create doctor test daemon: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = d.Close()
+	})
+	startErr := make(chan error, 1)
+	go func() {
+		startErr <- d.Start()
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for !daemonSocketActive(socketPath) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !daemonSocketActive(socketPath) {
+		t.Fatal("doctor test daemon socket did not become active")
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runCLI(
+		[]string{"doctor", "--json"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var report doctorReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("decode doctor report: %v\n%s", err, stdout.String())
+	}
+	if !report.Healthy || report.Summary.Failed != 0 {
+		t.Fatalf("doctor report = %#v", report)
+	}
+	if check := findDoctorCheck(report.Checks, "daemon.reachable"); check.Status != "pass" {
+		t.Fatalf("daemon reachable check = %#v", check)
+	}
+
+	if err := d.Close(); err != nil {
+		t.Fatalf("close doctor test daemon: %v", err)
+	}
+	select {
+	case err := <-startErr:
+		if err != nil {
+			t.Fatalf("doctor test daemon returned: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("doctor test daemon did not stop")
+	}
+}
+
+func TestDoctorFailureReturnsMachineReadableReportWithoutExtraError(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "doctor.sock")
+	setTestConfig(t, socketPath)
+	configPath := os.Getenv("THALWEG_CONFIG_PATH")
+	if err := os.Chmod(configPath, 0o644); err != nil {
+		t.Fatalf("broaden doctor test config: %v", err)
+	}
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	code := runCLI(
+		[]string{"doctor", "--json"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if code != 1 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("doctor JSON wrote extra stderr: %q", stderr.String())
+	}
+	var report doctorReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("decode failed doctor report: %v\n%s", err, stdout.String())
+	}
+	if report.Healthy || report.Summary.Failed == 0 {
+		t.Fatalf("doctor report = %#v", report)
+	}
+	if check := findDoctorCheck(report.Checks, "config.file"); check.Status != "fail" {
+		t.Fatalf("config check = %#v", check)
+	}
+}
+
+func TestDoctorDebugDetectsP2PPortConflict(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve conflicting p2p port: %v", err)
+	}
+	defer listener.Close()
+	_, port, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatalf("parse conflicting p2p port: %v", err)
+	}
+	runner := doctorRunner{
+		debug: true,
+		report: doctorReport{
+			Healthy: true,
+			Checks:  make([]doctorCheck, 0),
+		},
+	}
+	runner.checkP2P(
+		localConfig{P2PListenAddresses: []string{"/ip4/127.0.0.1/tcp/" + port}},
+		doctorNetworkStatus{},
+		false,
+	)
+	check := findDoctorCheck(runner.report.Checks, "p2p.bind")
+	if check.Status != "fail" || !strings.Contains(check.Summary, "unavailable") {
+		t.Fatalf("p2p bind check = %#v", check)
+	}
+}
+
+func findDoctorCheck(checks []doctorCheck, id string) doctorCheck {
+	for _, check := range checks {
+		if check.ID == id {
+			return check
+		}
+	}
+	return doctorCheck{}
+}
+
 func createUpgradeTestRepository(t *testing.T) (string, string) {
 	t.Helper()
 	root := t.TempDir()

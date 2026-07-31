@@ -44,6 +44,8 @@ func runCLI(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = runDevelopmentDaemon(args[1:], stdout, stderr)
 	case "status":
 		err = runSimpleAction("status", args[1:], "network_status", map[string]any{}, stdout, stderr)
+	case "doctor":
+		err = runDoctor(args[1:], stdout, stderr)
 	case "upgrade":
 		err = runUpgrade(args[1:], stdout, stderr)
 	case "network":
@@ -60,6 +62,9 @@ func runCLI(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "unknown command %q\n\n", args[0])
 		printUsage(stderr)
 		return 2
+	}
+	if errors.Is(err, errDoctorFailed) {
+		return 1
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "thalweg: %v\n", err)
@@ -80,6 +85,7 @@ Usage:
   thalweg daemon status
   thalweg daemon logs [--lines 100]
   thalweg status
+  thalweg doctor [--debug] [--json]
   thalweg upgrade [--check] [--no-restart] [--force]
   thalweg network create NAME
   thalweg network invite NAME

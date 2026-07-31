@@ -196,6 +196,9 @@ Definition of done:
 - [x] Add a versioned source-install record and safe `thalweg upgrade` flow
   with dirty-tree refusal, upstream fast-forward checks, atomic installation,
   and optional daemon restart.
+- [x] Add a read-only `thalweg doctor` suite with stable check IDs, human/JSON
+  output, actionable remedies, permission and lifecycle validation, upgrade
+  readiness, and optional listener bind probes.
 - [x] Add CLI/configuration support for socket and storage paths. Identity
   remains safely colocated with the selected storage root.
 - Package background service registration, signed release-binary upgrades,

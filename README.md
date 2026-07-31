@@ -46,6 +46,13 @@ The source checkout must be clean and have a configured Git upstream. A
 successful upgrade atomically replaces the binary and gracefully restarts a
 running daemon.
 
+Inspect the complete local setup without changing it:
+
+```bash
+thalweg doctor
+thalweg doctor --json
+```
+
 `thalweg init` writes a restricted per-user configuration at
 `~/.config/thalweg/config.json`, uses `/tmp/thalweg.sock`, stores durable data
 under `~/.local/share/thalweg`, and configures the stable p2p listener

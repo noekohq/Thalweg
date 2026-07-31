@@ -22,6 +22,8 @@ Important entry points:
   restart.
 - `cli_upgrade.go`: source-channel installation records, Git fast-forward
   validation, atomic reinstall, and post-upgrade restart.
+- `cli_doctor.go`: read-only configuration, lifecycle, permissions, p2p,
+  installation, upgrade-readiness, and log diagnostics.
 - `internal/console`: shared read-only daemon adapter, snapshot model, Bubble
   Tea TUI, embedded browser UI, security-sensitive routing, and tests.
 - `scripts/install.sh`: local source-checkout installer.

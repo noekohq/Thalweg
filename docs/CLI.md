@@ -153,6 +153,42 @@ startup, restart-on-failure, upgrades, and uninstallation remain deferred.
 development in a checkout, `go run . spawn` preserves the original relative
 `./storage/badger` behavior.
 
+## Diagnose a node
+
+Run the read-only diagnostic suite:
+
+```bash
+thalweg doctor
+```
+
+It checks configuration and permissions, lifecycle state, daemon/socket
+health, CLI/daemon version alignment, storage/identity/membership permissions,
+p2p listener syntax and advertised reachability, installation metadata,
+source-upgrade readiness, and daemon-log safety. Each warning or failure
+includes an actionable remedy.
+
+For automation, JSON output contains stable check IDs, statuses, details,
+remedies, and summary counts:
+
+```bash
+thalweg doctor --json
+```
+
+The command exits `0` when there are only passing checks or warnings and exits
+`1` when any check fails. JSON remains the only stdout content on failure.
+
+Add `--debug` to show diagnostic details in the human view and, when the daemon
+is stopped, briefly bind each configured p2p listener to detect port conflicts:
+
+```bash
+thalweg doctor --debug
+thalweg doctor --debug --json
+```
+
+Doctor never opens BadgerDB, decodes private identity or membership contents,
+changes permissions, removes stale files, fetches Git remotes, or performs
+repairs.
+
 ## Provision networks
 
 Create a network on the first device:
@@ -355,6 +391,7 @@ thalweg daemon restart [--timeout 10s] [--log PATH]
 thalweg daemon status
 thalweg daemon logs [--lines 100]
 thalweg status
+thalweg doctor [--debug] [--json]
 thalweg upgrade [--check] [--no-restart] [--force]
 thalweg network create NAME
 thalweg network invite NAME

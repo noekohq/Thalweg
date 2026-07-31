@@ -15,7 +15,9 @@ go vet ./...
 The root-package suite includes config permission/idempotency tests and fake
 Unix-socket integration tests for native CLI provisioning, event ingestion,
 network invitation input/reissue, mesh synchronization, and daemon error
-propagation.
+propagation. It also covers doctor JSON/failure semantics against live and
+misconfigured nodes, source-upgrade checks, dirty-checkout refusal, and
+installer execution.
 
 Installer smoke test:
 

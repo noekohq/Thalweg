@@ -88,6 +88,9 @@ The current daemon:
   and authenticated peer commands over the documented local IPC contract.
 - Records source installations and provides clean, fast-forward-only,
   atomically installed upgrades with graceful daemon restart.
+- Diagnoses local configuration, lifecycle, security-sensitive permissions,
+  p2p reachability, and upgrade readiness without opening storage or changing
+  node state.
 - Provides opt-in LAN mDNS discovery, time-bounded enrollment offers, explicit
   approval/denial, and post-approval initial synchronization.
 - Disables TCP source-port reuse until hole punching is implemented, avoiding
