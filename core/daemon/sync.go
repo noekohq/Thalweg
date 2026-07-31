@@ -37,6 +37,7 @@ type SyncResult struct {
 	Pushed      int                   `json:"pushed"`
 	Pulled      int                   `json:"pulled"`
 	Duplicates  int                   `json:"duplicates"`
+	Conflicts   []string              `json:"conflicts,omitempty"`
 }
 
 type syncEnvelope struct {
@@ -170,13 +171,7 @@ func (d *Daemon) pushInventory(
 			if err := readSyncResponse(reader, membership.ID, "inventory_need", &need); err != nil {
 				return err
 			}
-			if len(need.Conflicts) > 0 {
-				return fmt.Errorf(
-					"event identity conflict for network %q: %v",
-					membership.Name,
-					need.Conflicts,
-				)
-			}
+			result.Conflicts = appendUniqueStrings(result.Conflicts, need.Conflicts...)
 			if len(need.IDs) > 0 {
 				events, err := d.eventsByIDs(membership.Name, need.IDs)
 				if err != nil {
@@ -233,13 +228,7 @@ func (d *Daemon) pullInventory(
 		if err != nil {
 			return err
 		}
-		if len(conflicts) > 0 {
-			return fmt.Errorf(
-				"event identity conflict for network %q: %v",
-				membership.Name,
-				conflicts,
-			)
-		}
+		result.Conflicts = appendUniqueStrings(result.Conflicts, conflicts...)
 		if len(missing) > 0 {
 			if err := writeSyncFrame(stream, eventsRequest{
 				Type:            "events_request",
@@ -276,6 +265,21 @@ func (d *Daemon) pullInventory(
 		}
 		cursor = page.NextCursor
 	}
+}
+
+func appendUniqueStrings(values []string, candidates ...string) []string {
+	seen := make(map[string]struct{}, len(values)+len(candidates))
+	for _, value := range values {
+		seen[value] = struct{}{}
+	}
+	for _, candidate := range candidates {
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		values = append(values, candidate)
+	}
+	return values
 }
 
 func (d *Daemon) serveSyncRequests(

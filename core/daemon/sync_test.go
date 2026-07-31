@@ -104,7 +104,7 @@ func TestSynchronizePeerNeverCrossesAuthenticatedNetwork(t *testing.T) {
 	assertEventCount(t, second, "work", 1)
 }
 
-func TestSynchronizePeerDetectsSameIDWithDifferentEnvelope(t *testing.T) {
+func TestSynchronizePeerQuarantinesSameIDConflictAndConvergesOtherEvents(t *testing.T) {
 	first := newMeshTestDaemon(t)
 	second := newMeshTestDaemon(t)
 	mountSharedNetwork(t, first, second, "home")
@@ -115,14 +115,28 @@ func TestSynchronizePeerDetectsSameIDWithDifferentEnvelope(t *testing.T) {
 	if _, err := second.ingest("home", "notes", "", "collision", json.RawMessage(`{"owner":"second"}`)); err != nil {
 		t.Fatalf("ingest second collision: %v", err)
 	}
+	if _, err := first.ingest("home", "notes", "", "first-only", json.RawMessage(`{"owner":"first-only"}`)); err != nil {
+		t.Fatalf("ingest first-only event: %v", err)
+	}
+	if _, err := second.ingest("home", "notes", "", "second-only", json.RawMessage(`{"owner":"second-only"}`)); err != nil {
+		t.Fatalf("ingest second-only event: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	connectTestDaemons(t, ctx, first, second)
-	if _, err := first.synchronizePeer(ctx, second.p2p.ID(), "home"); err == nil ||
-		!strings.Contains(err.Error(), "event identity conflict") {
-		t.Fatalf("conflicting synchronization error = %v", err)
+	result, err := first.synchronizePeer(ctx, second.p2p.ID(), "home")
+	if err != nil {
+		t.Fatalf("synchronize around conflict: %v", err)
 	}
+	if len(result.Conflicts) != 1 || result.Conflicts[0] != "collision" {
+		t.Fatalf("sync conflicts = %v, want [collision]", result.Conflicts)
+	}
+	if result.Pushed != 1 || result.Pulled != 1 {
+		t.Fatalf("sync result = %#v, want one non-conflicting event each way", result)
+	}
+	assertEventCount(t, first, "home", 3)
+	assertEventCount(t, second, "home", 3)
 	assertEventPayloadOwner(t, first, "home", "first")
 	assertEventPayloadOwner(t, second, "home", "second")
 }
@@ -361,13 +375,20 @@ func assertEventPayloadOwner(t *testing.T, d *Daemon, networkName string, want s
 	if err != nil {
 		t.Fatalf("query conflict: %v", err)
 	}
-	if len(events) != 1 {
-		t.Fatalf("conflict history contains %d events", len(events))
+	var conflict *ThalwegEvent
+	for index := range events {
+		if events[index].ID == "collision" {
+			conflict = &events[index]
+			break
+		}
+	}
+	if conflict == nil {
+		t.Fatal("conflict event is missing")
 	}
 	var payload struct {
 		Owner string `json:"owner"`
 	}
-	if err := json.Unmarshal(events[0].Payload, &payload); err != nil {
+	if err := json.Unmarshal(conflict.Payload, &payload); err != nil {
 		t.Fatalf("decode conflict payload: %v", err)
 	}
 	if payload.Owner != want {
