@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
+    "check": "tsc --noEmit",
     "dev": "tsc --watch",
     "test": "bun test",
     "demo:velotic": "bun run src/demo/velotic.ts",

@@ -9,7 +9,7 @@ distributed architecture. The daemon can ingest, persist, query, live-push,
 authenticate peers, enroll devices, and synchronize events over explicit and
 startup-restored connections.
 
-The companion SDK is https://github.com/noekohq/thalweg-js.
+The TypeScript SDK lives at `packages/sdk-js` in this monorepo.
 
 Important entry points:
 
@@ -57,7 +57,8 @@ Important entry points:
 
 ```bash
 go test ./...
-go run . spawn
+make test
+make build
 ```
 
 The installed workflow is:
@@ -68,7 +69,7 @@ thalweg init
 thalweg daemon
 ```
 
-With the daemon running, use the companion repository:
+With the daemon running, use the workspace SDK demo:
 
 ```bash
 bun run demo:velotic
@@ -116,7 +117,7 @@ creates one `insights:summary` event, and all four print chronologically.
   processing health remain unavailable daemon read contracts and are shown as
   unsupported by both console frontends.
 - `data/event.proto` is reserved but currently empty; the active JSON contract
-  is shared by a small internal Go IPC package and cross-repository docs.
+  is shared by a small internal Go IPC package and monorepo documentation.
 
 ## Recommended Next Work
 
@@ -127,5 +128,5 @@ receive, authenticated multi-network membership, and bounded bidirectional sync
 are implemented. Next work is durable incremental sync progress,
 discovery/background retry, live fanout, and the Console/Mesh Lab.
 
-Any wire change must be mirrored in `noekohq/thalweg-js` and documented in both
-repositories.
+Any wire change must update `packages/sdk-js` and the canonical root protocol
+documentation in the same change.

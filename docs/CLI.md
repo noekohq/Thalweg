@@ -5,7 +5,7 @@ Last reviewed: 2026-08-02
 ## Purpose
 
 The Go binary is both the daemon and its local operator CLI. Application code
-should still use `thalweg-js` or the documented IPC protocol, while humans and
+should still use `packages/sdk-js` or the documented IPC protocol, while humans and
 setup automation can provision and inspect a node without writing an SDK
 script.
 

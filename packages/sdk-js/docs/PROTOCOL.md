@@ -1,8 +1,6 @@
 # SDK Transport Contract
 
-The canonical daemon contract is maintained in:
-
-https://github.com/noekohq/Thalweg/blob/master/docs/PROTOCOL.md
+The canonical daemon contract is maintained at `../../../docs/PROTOCOL.md`.
 
 This document describes how the SDK consumes that contract.
 
@@ -99,6 +97,6 @@ resubscription are not implemented.
 
 ## Compatibility Rule
 
-Any action, field, response, or push-shape change requires a coordinated release
-with `noekohq/Thalweg`. Messages are versioned, but there is no handshake or
+Any action, field, response, or push-shape change must update the root Go module
+and this package together. Messages are versioned, but there is no handshake or
 feature negotiation, so daemon and SDK versions must still match.

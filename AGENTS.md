@@ -1,9 +1,9 @@
 # Thalweg Agent Guide
 
-This repository contains the Go daemon for Thalweg. It owns local persistence,
-event ordering, IPC routing, subscriptions, and eventually peer-to-peer
-replication. The TypeScript SDK lives separately at
-https://github.com/noekohq/thalweg-js.
+This monorepo contains the Go daemon and CLI, TypeScript SDK, browser Console,
+shared contracts, and client applications for Thalweg. The Go data plane owns
+local persistence, event ordering, IPC routing, subscriptions, and peer-to-peer
+replication. `packages/sdk-js` owns the typed developer API.
 
 ## Start Here
 
@@ -20,6 +20,7 @@ Read these documents before changing behavior:
 9. `docs/ENROLLMENT.md` - discovery, approval, and joining protocol.
 10. `docs/CONSOLE.md` - local dashboard and multi-device test harness.
 11. `HANDOFF.md` - current implementation caveats and recommended next work.
+12. `docs/MONOREPO.md` - workspace ownership and cross-language commands.
 
 ## Repository Responsibility
 
@@ -41,8 +42,16 @@ It is not authoritative for:
 ## Development Commands
 
 ```bash
+make bootstrap
+make check
+make test
+make build
+
+# Focused commands
 go test ./...
 go run . spawn
+bun --cwd packages/sdk-js test
+bun --cwd apps/console-web run check
 ```
 
 The daemon listens on `/tmp/thalweg.sock`, writes events to `./storage/badger`,
@@ -106,4 +115,4 @@ work.
 - Add tests for ordering, persistence, malformed input, and restart behavior
   when changing the data plane.
 - Keep p2p protocol handling separate from trusted local IPC handlers.
-- Coordinate public contract changes with the `thalweg-js` repository.
+- Coordinate public contract changes with `packages/sdk-js` in the same change.

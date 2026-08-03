@@ -8,7 +8,7 @@ This repository contains a working typed SDK prototype for the local Thalweg
 daemon. It can ingest and query events, subscribe to future events, perform a
 one-shot interval lookback, and write derived events.
 
-The companion daemon is https://github.com/noekohq/Thalweg.
+The companion daemon lives at the monorepo root.
 
 Important entry points:
 
@@ -26,7 +26,7 @@ bun run build
 bun test
 ```
 
-Start the companion daemon:
+From the monorepo root, start the daemon:
 
 ```bash
 go run . spawn
@@ -67,5 +67,6 @@ exposes manual bidirectional convergence and transfer counts. Approval-based
 enrollment has typed open, discover, request, decide, and close wrappers. Add
 broader fluent API coverage before expanding these operations further.
 
-Coordinate every wire-contract change with `noekohq/Thalweg`. The daemon owns
-event semantics; this repository owns TypeScript ergonomics and type safety.
+Coordinate every wire-contract change with the root Go implementation. The
+daemon owns event semantics; this package owns TypeScript ergonomics and type
+safety.

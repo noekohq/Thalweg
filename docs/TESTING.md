@@ -4,7 +4,7 @@ Last exercised: 2026-07-30
 
 ## Automated Verification
 
-Run from the daemon repository:
+Run from the monorepo root:
 
 ```bash
 go test -race ./...
@@ -61,12 +61,15 @@ The enrollment suite covers:
 - Approval followed by credential mounting and authenticated initial sync.
 - Explicit shared-secret transfer only after approval.
 
-Run from `thalweg-js`:
+Run the SDK checks from the monorepo root:
 
 ```bash
-bun run build
-bun test --rerun-each 10
+bun --cwd packages/sdk-js run build
+bun --cwd packages/sdk-js test --rerun-each 10
 ```
+
+The normal all-component entry points are `make check`, `make test`, and
+`make build`.
 
 ## Host/VM Topology
 

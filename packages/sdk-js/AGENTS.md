@@ -1,9 +1,9 @@
 # Thalweg TypeScript SDK Agent Guide
 
-This repository contains the TypeScript developer interface for Thalweg. It
+This package contains the TypeScript developer interface for Thalweg. It
 owns typed ingestion, queries, basin definitions, siphon builders, and local
-daemon communication. The Go daemon lives separately at
-https://github.com/noekohq/Thalweg.
+daemon communication. The Go daemon and canonical contracts live at the
+monorepo root.
 
 ## Start Here
 
@@ -15,10 +15,8 @@ Read these documents before changing public behavior:
 4. `docs/ROADMAP.md` - implemented scope and next milestones.
 5. `HANDOFF.md` - current caveats and recommended next work.
 
-The daemon's canonical event/storage semantics are documented in:
-
-- https://github.com/noekohq/Thalweg/blob/master/docs/DATA_MODEL.md
-- https://github.com/noekohq/Thalweg/blob/master/docs/PROTOCOL.md
+The daemon's canonical event/storage semantics are documented in
+`../../docs/DATA_MODEL.md` and `../../docs/PROTOCOL.md`.
 
 ## Repository Responsibility
 
@@ -46,7 +44,7 @@ bun test
 bun run demo:velotic
 ```
 
-The demo requires a daemon running from the companion Go repository:
+The demo requires a daemon running from the monorepo root:
 
 ```bash
 go run . spawn
@@ -89,6 +87,6 @@ go run . spawn
 - Treat exported types and fluent call order as public API.
 - Add compile-time type tests for every generic transition.
 - Keep runtime behavior aligned with inferred callback types.
-- Coordinate action names and payload fields with `noekohq/Thalweg`.
+- Coordinate action names and payload fields with the root Go implementation.
 - Update `docs/SDK.md` and `docs/PROTOCOL.md` with public changes.
 - Do not embed daemon ordering/storage assumptions in the SDK.

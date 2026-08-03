@@ -138,7 +138,7 @@ Not implemented:
 
 ### Reactive Execution
 
-Implemented across the daemon and `thalweg-js`:
+Implemented across the daemon and `packages/sdk-js`:
 
 - Future-event subscriptions.
 - One-shot historical range queries.
@@ -312,7 +312,7 @@ Exit guarantee:
 
 ## Milestone 5: Integration Primitives and Developer Experience
 
-The companion SDK owns most of this surface, with daemon support where state
+The workspace SDK owns most of this surface, with daemon support where state
 must be durable.
 
 Definition of done:

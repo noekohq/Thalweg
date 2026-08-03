@@ -338,7 +338,7 @@ Local request lines are explicitly capped at 1 MiB. Clients should apply their
 own deadlines; long-lived subscription sockets intentionally remain open until
 unregistered, disconnected, or the daemon shuts down.
 
-All field/action changes must still be coordinated with `noekohq/thalweg-js`.
+All field/action changes must update `packages/sdk-js` in the same change.
 
 Remote p2p traffic uses a separate versioned membership protocol rather than
 exposing the trusted local action router directly.

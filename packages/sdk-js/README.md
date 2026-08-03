@@ -4,10 +4,9 @@ Typed TypeScript SDK for the local Thalweg daemon.
 
 ## Usage
 
-Start the daemon first:
+From the monorepo root, start the daemon first:
 
 ```bash
-cd ../thalweg
 go run . spawn
 ```
 
@@ -76,5 +75,5 @@ t.basin("timeline")
 - [Agent guide](AGENTS.md)
 - [Current handoff](HANDOFF.md)
 
-The Go daemon and canonical event/protocol documentation are maintained
-separately at https://github.com/noekohq/Thalweg.
+The Go daemon and canonical event/protocol documentation live at the monorepo
+root in `../../docs`.

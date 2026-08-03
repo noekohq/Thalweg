@@ -5,6 +5,29 @@ immutable typed events locally, serves range queries and live subscriptions,
 and synchronizes permitted history across explicitly connected, authenticated
 devices.
 
+This monorepo contains the Go daemon and CLI, the TypeScript SDK, the browser
+Console, shared documentation, and future client applications. Go dependencies
+remain managed by Go modules; Bun workspaces manage JavaScript and TypeScript.
+
+## Develop the monorepo
+
+Install both toolchains' dependencies and run the complete verification suite:
+
+```bash
+make bootstrap
+make check
+make test
+make build
+```
+
+Individual surfaces remain independently runnable:
+
+```bash
+go run . spawn
+bun run dev:console
+bun run demo:velotic
+```
+
 ## MVP Surface
 
 - `event_ingest`: append an event to a network and stream.
@@ -172,10 +195,9 @@ discovery exists.
 
 ## Simple Velotic Demo
 
-In another shell:
+In another shell from the repository root:
 
 ```bash
-cd ../thalweg-js
 bun run demo:velotic
 ```
 
@@ -197,12 +219,12 @@ window recomputation.
 - [Local IPC protocol](docs/PROTOCOL.md)
 - [Remote mesh protocol](docs/MESH_PROTOCOL.md)
 - [Testing and Lima acceptance](docs/TESTING.md)
+- [Monorepo development](docs/MONOREPO.md)
 - [CLI and local installation](docs/CLI.md)
 - [Discovery and enrollment](docs/ENROLLMENT.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Console and Mesh Lab specification](docs/CONSOLE.md)
 - [Agent guide](AGENTS.md)
 - [Current handoff](HANDOFF.md)
-
-The companion TypeScript SDK is maintained separately at
-https://github.com/noekohq/thalweg-js.
+- [TypeScript SDK](packages/sdk-js/README.md)
+- [Mobile application boundary](apps/mobile/README.md)

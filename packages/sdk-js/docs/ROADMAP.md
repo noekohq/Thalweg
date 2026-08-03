@@ -13,8 +13,8 @@ Source-specific behavior remains outside the SDK. Thalweg should not implement
 audio capture, transcription, SSH access, Supabase collection, model execution,
 or permanent knowledge storage directly.
 
-The canonical system milestones and use-case readiness gates live in the daemon
-repository's `docs/ROADMAP.md`.
+The canonical system milestones and use-case readiness gates live in the
+monorepo root at `../../../docs/ROADMAP.md`.
 
 ## API Direction
 
@@ -214,8 +214,8 @@ Exit guarantee:
 
 ## Thalweg Console Support
 
-The Console and Mesh Lab are separate applications specified in the daemon
-repository's `docs/CONSOLE.md`. The SDK should make them ordinary public-contract
+The Console and Mesh Lab are separate applications specified in
+`../../../docs/CONSOLE.md`. The SDK should make them ordinary public-contract
 consumers rather than privileged storage readers.
 
 SDK deliverables:

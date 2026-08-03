@@ -3,3 +3,9 @@ storage/
 *.sock
 .DS_Store
 node_modules/
+dist/
+coverage/
+*.tgz
+*.tsbuildinfo
+.env
+.env.*.local

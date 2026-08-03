@@ -8,7 +8,7 @@ export default defineConfig({
   },
   build: {
     emptyOutDir: true,
-    outDir: "../web/assets",
+    outDir: "../../internal/console/web/assets",
     lib: {
       entry: "src/main.tsx",
       formats: ["es"],

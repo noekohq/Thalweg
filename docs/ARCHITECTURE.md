@@ -12,19 +12,22 @@ semantic graph. Raw telemetry should not need to become permanent graph data.
 
 ## Repository Boundary
 
-The system is intentionally split across repositories:
+The Thalweg monorepo keeps protocol producers and consumers versioned together:
 
-- `noekohq/Thalweg`: Go daemon, storage, IPC, ordering, and p2p.
-- `noekohq/thalweg-js`: typed SDK, basins, siphon builders, and application
-  integration.
-- Velotic: an example consumer and eventual personal timeline experience.
-- Noeko: downstream durable semantic knowledge storage.
+- The root Go module owns daemon storage, IPC, ordering, p2p, the operator CLI,
+  and the Bubble Tea Console.
+- `packages/sdk-js` owns the typed SDK, basin and siphon builders, and runtime
+  client ergonomics.
+- `apps/console-web` owns the browser Console source compiled into the Go
+  binary.
+- `apps` is the home for independently deployed Thalweg clients such as the
+  planned React Native mobile edge node.
+- Noeko remains a separate downstream semantic knowledge system.
 
-Keeping these separate is a supported project structure, not a temporary
-failure to create a monorepo. Cross-repository contracts must therefore be
-documented and versioned carefully.
+Component packages retain explicit responsibility boundaries even though one
+change can now update and test both sides of a protocol contract.
 
-The Go repository also owns a thin operator CLI. Its `network`, `event`,
+The root Go module also owns a thin operator CLI. Its `network`, `event`,
 `peer`, and `status` commands use the public local IPC contract rather than
 opening storage directly. This keeps manual provisioning behavior aligned with
 the SDK while allowing a node to be installed and operated without JavaScript.
@@ -42,7 +45,7 @@ Catchments / applications
         |
         | typed payloads
         v
-thalweg-js
+packages/sdk-js
         |
         | local IPC contracts
         v

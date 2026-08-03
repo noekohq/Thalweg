@@ -54,14 +54,13 @@ Browser GUI ────┘
   alerts, and tables with a small Nord theme override. Its production assets
   are compiled into the Go binary and do not depend on a runtime CDN.
 
-The browser source lives in `internal/console/webui`. After editing it, run
-`npm install`, `npm run check`, and `npm run build` there; the build writes the
-embedded production assets to `internal/console/web/assets`.
+The browser source lives in `apps/console-web`. After editing it, run
+`bun --cwd apps/console-web run check` and
+`bun --cwd apps/console-web run build`; the build writes the embedded
+production assets to `internal/console/web/assets`.
 
-This first implementation lives in the Go repository so the TUI and web
-sidecar can share one local IPC adapter and presentation model. A separate
-TypeScript/SDK package remains an option when the daemon administration
-contracts and desktop packaging stabilize.
+The browser source and SDK are independent workspaces in the monorepo while the
+TUI and web sidecar continue to share one Go IPC adapter and presentation model.
 
 Not yet implemented from Console 0:
 
@@ -165,9 +164,9 @@ Recommended first implementation:
 The current Go sidecar preserves these security and deployment properties while
 also supplying the Bubble Tea frontend from the same observer model.
 
-The Console should eventually live in a separate `thalweg-console` repository
-or package. It must not be linked into the daemon process or allowed to become
-the only way to operate Thalweg.
+The Console remains an independent application workspace even while its assets
+are packaged into the daemon binary. It must not become the only way to operate
+Thalweg.
 
 Packaging as a signed desktop application may follow after the web development
 loop and contracts stabilize.

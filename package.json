@@ -1,0 +1,16 @@
+{
+  "name": "@quasarbrains/thalweg-monorepo",
+  "private": true,
+  "packageManager": "bun@1.3.6",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:js": "bun --filter '!./' --filter './apps/*' --filter './packages/*' build",
+    "check:js": "bun --filter '!./' --filter './apps/*' --filter './packages/*' check",
+    "test:js": "bun --cwd packages/sdk-js test",
+    "demo:velotic": "bun --cwd packages/sdk-js run demo:velotic",
+    "dev:console": "bun --cwd apps/console-web run dev"
+  }
+}
