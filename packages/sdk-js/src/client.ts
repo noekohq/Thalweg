@@ -27,6 +27,11 @@ interface ResponseMessage<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  errorDetails?: {
+    code: string;
+    message: string;
+    retryable: boolean;
+  };
 }
 
 interface StreamMessage {
@@ -37,10 +42,25 @@ interface StreamMessage {
 }
 
 type PendingRequest = {
+  action: string;
   resolve: (value: unknown) => void;
   reject: (reason?: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
 };
+
+export class ThalwegDaemonError extends Error {
+  readonly action: string;
+  readonly code: string;
+  readonly retryable: boolean;
+
+  constructor(action: string, code: string, message: string, retryable: boolean) {
+    super(message);
+    this.name = "ThalwegDaemonError";
+    this.action = action;
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
 
 type EventHandler = (event: DaemonEvent) => void | Promise<void>;
 
@@ -79,6 +99,7 @@ export class DaemonClient {
         reject(new Error(`Thalweg daemon request ${action} timed out.`));
       }, this.requestTimeoutMs);
       this.pending.set(id, {
+        action,
         resolve: (value) => {
           clearTimeout(timer);
           resolve(value as T);
@@ -206,7 +227,13 @@ export class DaemonClient {
       if (response.success) {
         pending.resolve(response.data);
       } else {
-        pending.reject(new Error(response.error ?? "Thalweg daemon request failed."));
+        const details = response.errorDetails;
+        pending.reject(new ThalwegDaemonError(
+          pending.action,
+          details?.code ?? "action_failed",
+          details?.message ?? response.error ?? "Thalweg daemon request failed.",
+          details?.retryable ?? false,
+        ));
       }
     }
   }

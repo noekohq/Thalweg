@@ -24,6 +24,24 @@ type Response struct {
 	Success         bool            `json:"success"`
 	Data            json.RawMessage `json:"data"`
 	Error           string          `json:"error"`
+	ErrorDetails    *ErrorDetails   `json:"errorDetails"`
+}
+
+type ErrorDetails struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	Retryable bool   `json:"retryable"`
+}
+
+type DaemonError struct {
+	Action    string
+	Code      string
+	Message   string
+	Retryable bool
+}
+
+func (e *DaemonError) Error() string {
+	return e.Message
 }
 
 // Call performs one correlated request against the local daemon. Higher-level
@@ -76,10 +94,20 @@ func Call(
 		)
 	}
 	if !response.Success {
-		if response.Error == "" {
-			response.Error = "unknown daemon error"
+		message := response.Error
+		code := "action_failed"
+		retryable := false
+		if response.ErrorDetails != nil {
+			code = response.ErrorDetails.Code
+			retryable = response.ErrorDetails.Retryable
+			if response.ErrorDetails.Message != "" {
+				message = response.ErrorDetails.Message
+			}
 		}
-		return nil, fmt.Errorf("%s", response.Error)
+		if message == "" {
+			message = "unknown daemon error"
+		}
+		return nil, &DaemonError{Action: action, Code: code, Message: message, Retryable: retryable}
 	}
 	if len(response.Data) == 0 {
 		return json.RawMessage("null"), nil

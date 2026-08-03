@@ -1,6 +1,6 @@
 # Thalweg CLI and Local Installation
 
-Last reviewed: 2026-08-02
+Last reviewed: 2026-08-03
 
 ## Purpose
 
@@ -237,6 +237,17 @@ List mounted networks:
 thalweg network list
 ```
 
+Leave a network on this device:
+
+```bash
+thalweg network leave --yes home
+```
+
+The confirmation is mandatory because leaving removes the local membership and
+its remembered peer retry records. It does not delete locally stored events,
+which remain accessible to trusted local queries that explicitly name the old
+network. It does not rotate the shared credential or revoke another device.
+
 ## Approval-based joining
 
 On an existing member:
@@ -337,7 +348,8 @@ thalweg peer dial \
 ```
 
 `peer dial` authenticates and remembers the peer but does not exchange events.
-To converge both histories:
+Remembered authorized peers are eligible for periodic synchronization. To
+converge immediately:
 
 ```bash
 thalweg peer sync \
@@ -350,9 +362,18 @@ Conflicting IDs appear in `conflicts` but do not block unrelated transfers.
 Run it a second time; a converged pair should report zero pushed and pulled
 events.
 
-Continuous live fanout and periodic retry are not implemented. Run `peer sync`
-after new events or reconnection. A remembered peer is also synchronized when
-the daemon starts and its stable address is reachable.
+Inspect remembered peers and their persisted synchronization health:
+
+```bash
+thalweg peer list
+thalweg peer list --network home
+```
+
+The daemon periodically retries remembered authorized peers. Failed attempts
+use bounded exponential backoff and expose their next retry through `peer
+list`. There is still no continuous live fanout, peer address rediscovery, or
+durable page cursor, so `peer sync` remains useful when testing or when
+immediate convergence matters.
 
 ## Console
 
@@ -383,8 +404,8 @@ addresses. Choose another loopback port or initial network with:
 thalweg console web --listen 127.0.0.1:43424 --network home
 ```
 
-Both interfaces are read-only. They use `network_status`, `network_list`, and
-`event_query` over the public daemon socket; they never read BadgerDB,
+Both interfaces are read-only. They use `network_status`, `network_list`,
+`mesh_peer_list`, and `event_query` over the public daemon socket; they never read BadgerDB,
 membership files, or logs directly. Diagnostics exports redact event payloads.
 Recent events are currently limited to the first 100 events in a 24-hour
 diagnostic window because cursor-based dashboard queries are not implemented.
@@ -422,6 +443,7 @@ thalweg network listen NAME
 thalweg network join [INVITATION]
 thalweg join [--address MULTIADDR] [--debug]
 thalweg network list
+thalweg network leave --yes NAME
 thalweg console [tui] [--network NAME]
 thalweg console web [--network NAME] [--listen 127.0.0.1:42424]
 thalweg event ingest --network NAME --stream NAME --payload JSON
@@ -430,6 +452,7 @@ thalweg event conflicts list --network NAME
 thalweg event conflicts resolve --network NAME --id EVENT_ID
 thalweg peer dial --network NAME --address MULTIADDR
 thalweg peer sync --network NAME --address MULTIADDR
+thalweg peer list [--network NAME]
 thalweg version
 ```
 

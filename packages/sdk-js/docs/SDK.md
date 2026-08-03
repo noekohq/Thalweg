@@ -166,6 +166,9 @@ await other.joinNetwork(created.invitation);
 const reissued = await t.inviteNetwork("home");
 
 const memberships = await t.listNetworks(); // secrets are redacted
+
+// Removes this device's membership and remembered peers; does not revoke others.
+await t.leaveNetwork("home");
 ```
 
 Invitations are bearer credentials containing a network secret. Applications
@@ -214,6 +217,9 @@ const result = await t.syncMeshPeer(
 );
 
 console.log(result.pushed, result.pulled);
+
+const peers = await t.listMeshPeers("home");
+console.log(peers[0]?.state, peers[0]?.lastSuccessAt);
 ```
 
 Synchronization is bounded and inventory-first. The daemon rejects
@@ -223,7 +229,9 @@ one authenticated on the stream.
 ## Lifecycle and Errors
 
 `Thalweg.close()` ends the socket. Continuous handles expose `ready`, `result`,
-and `stop()`. The client rejects pending requests if the socket closes or sends
+and `stop()`. Daemon rejections use `ThalwegDaemonError`, whose `action`,
+`code`, `message`, and `retryable` fields are safe to branch on without parsing
+prose. The client rejects pending requests if the socket closes or sends
 malformed JSON, and requests time out after 30 seconds by default. Configure
 `requestTimeoutMs` on `ThalwegConfiguration` when needed. Automatic reconnect,
 abort-signal cancellation, and subscription restoration remain future work.

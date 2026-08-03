@@ -67,6 +67,10 @@ exposes manual bidirectional convergence and transfer counts. Approval-based
 enrollment has typed open, discover, request, decide, and close wrappers. Add
 broader fluent API coverage before expanding these operations further.
 
+The SDK now also exposes `leaveNetwork()`, `listMeshPeers()`, and structured
+`ThalwegDaemonError` values. Peer status represents the daemon's latest
+persisted observation; it is not a continuous convergence guarantee.
+
 Coordinate every wire-contract change with the root Go implementation. The
 daemon owns event semantics; this package owns TypeScript ergonomics and type
 safety.

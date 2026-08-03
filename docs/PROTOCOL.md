@@ -20,8 +20,24 @@ Responses:
 Errors:
 
 ```json
-{"id":"req_1","protocolVersion":1,"success":false,"error":"network is required"}
+{
+  "id":"req_1",
+  "protocolVersion":1,
+  "success":false,
+  "error":"network is required",
+  "errorDetails":{
+    "code":"action_failed",
+    "message":"network is required",
+    "retryable":false
+  }
+}
 ```
+
+`error` remains the backward-compatible human-readable message.
+`errorDetails` is the machine-readable form for new clients. Current codes are
+`invalid_request`, `protocol_mismatch`, `unknown_action`, `request_too_large`,
+`deadline_exceeded`, `canceled`, `unavailable`, and `action_failed`. Clients
+should branch on `code` and `retryable`, not parse the message.
 
 Subscription pushes are not responses and have no request `id`:
 
@@ -255,6 +271,21 @@ An unknown network name is rejected.
 Payload may be `{}`. Returns mounted `{name, id}` records sorted by name.
 Membership secrets and invitations are never returned.
 
+### `network_leave`
+
+Payload:
+
+```json
+{"name":"home"}
+```
+
+Removes the mounted membership and all remembered mesh-peer retry records for
+that network. Returns `{membership, left: true}`. Locally stored events are not
+deleted and remain available to trusted local IPC queries that explicitly name
+the old namespace, but they can no longer replicate without remounting a
+credential. Version-1 credentials held by other devices remain valid, so
+leaving is not credential rotation or revocation.
+
 ### Enrollment actions
 
 Enrollment actions back the approval-based `network listen` / `join` flow. See
@@ -302,7 +333,9 @@ Payload:
 Connects to the peer, performs the remote membership handshake for exactly one
 mounted network, and persists the peer under that network only after mutual
 authentication succeeds. Returns the peer ID, redacted network membership, and
-`authorized: true`. This does not exchange events yet; see `MESH_PROTOCOL.md`.
+`authorized: true`. This call does not exchange events, but the remembered peer
+is eligible for the daemon's periodic synchronization loop; see
+`MESH_PROTOCOL.md`.
 
 ### `mesh_sync`
 
@@ -321,8 +354,26 @@ directions. The response reports `peerId`, the redacted network membership,
 `inventoried`, `pushed`, `pulled`, and `duplicates` counts. A non-empty
 `conflicts` array reports quarantined IDs without aborting unrelated transfer.
 
-The synchronized peer address is persisted for automatic reconnection and
-another synchronization at daemon startup.
+The synchronized peer address is persisted for automatic retry. The daemon
+periodically synchronizes remembered, already-authorized peers, records the
+last result, and applies bounded exponential backoff after failures. This is
+eventual polling, not continuous live fanout.
+
+### `mesh_peer_list`
+
+Payload may be `{}` or filter one mounted network:
+
+```json
+{"network":"home"}
+```
+
+Returns remembered peers sorted by network and peer ID. Each record contains
+the redacted network, peer ID and address, current `connected` observation, a
+state (`known`, `connected`, `syncing`, `healthy`, or `degraded`), attempt and
+success timestamps, retry time, consecutive failure count, last error, and the
+last successful synchronization result when available. Connection state is a
+point-in-time libp2p observation; `healthy` means the last synchronization
+succeeded, not that two nodes are continuously identical.
 
 Empty `event_query` results are encoded as `[]`, never `null`.
 
@@ -334,9 +385,10 @@ compatibility with the first prototype, an absent request version is interpreted
 as version `1`; this fallback should be removed deliberately in a future
 breaking version. Local IPC has no handshake or feature negotiation yet.
 
-Local request lines are explicitly capped at 1 MiB. Clients should apply their
-own deadlines; long-lived subscription sockets intentionally remain open until
-unregistered, disconnected, or the daemon shuts down.
+Local request lines are explicitly capped at 1 MiB. Request/response clients
+apply deadlines; long-lived subscription sockets intentionally remain open
+until unregistered, disconnected, or the daemon shuts down. Handlers do not yet
+have action-specific server-side time budgets.
 
 All field/action changes must update `packages/sdk-js` in the same change.
 

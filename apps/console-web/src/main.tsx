@@ -49,6 +49,17 @@ type StreamSummary = {
   latestAt?: string;
 };
 
+type MeshPeer = {
+  peerId: string;
+  address: string;
+  state: "known" | "connected" | "syncing" | "healthy" | "degraded";
+  connected: boolean;
+  lastSuccessAt?: string;
+  lastError?: string;
+  nextAttemptAt?: string;
+  consecutiveFailures: number;
+};
+
 type Feature = {
   name: string;
   supported: boolean;
@@ -67,6 +78,7 @@ type Snapshot = {
     storageSchemaVersion: number;
   };
   networks: Network[];
+  peers: MeshPeer[];
   selectedNetwork?: string;
   events: Event[];
   streams: StreamSummary[];
@@ -198,6 +210,7 @@ function App() {
   const metrics = [
     { label: "Device", value: shortId(snapshot?.status.deviceId), mono: true },
     { label: "Networks", value: String(snapshot?.networks.length ?? 0) },
+    { label: "Known peers", value: String(snapshot?.peers?.length ?? 0) },
     { label: "Recent events", value: String(events.length) },
     {
       label: "Versions",
@@ -349,6 +362,49 @@ function App() {
               </Card>
             </Grid.Col>
           </Grid>
+
+          <Card withBorder padding="lg">
+            <SectionTitle title="Peers" detail={selectedNetwork || "network required"} />
+            {!snapshot?.peers?.length ? (
+              <Empty>No known peers for this network.</Empty>
+            ) : (
+              <ScrollArea type="auto">
+                <Table verticalSpacing="sm" miw={760}>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Peer</Table.Th>
+                      <Table.Th>State</Table.Th>
+                      <Table.Th>Last synchronized</Table.Th>
+                      <Table.Th>Retry</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {snapshot.peers.map((peer) => (
+                      <Table.Tr key={peer.peerId}>
+                        <Table.Td>
+                          <Text ff="monospace" size="sm">{shortId(peer.peerId)}</Text>
+                          <Text c="dimmed" ff="monospace" size="xs" truncate maw={340}>
+                            {peer.address}
+                          </Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Badge color={peer.state === "healthy" ? "green" : peer.state === "degraded" ? "yellow" : "frost"} variant="light">
+                            {peer.state}{peer.connected ? " · connected" : ""}
+                          </Badge>
+                          {peer.lastError && <Text c="yellow" size="xs" mt={4}>{peer.lastError}</Text>}
+                        </Table.Td>
+                        <Table.Td>{localTime(peer.lastSuccessAt)}</Table.Td>
+                        <Table.Td>
+                          <Text size="xs">{peer.consecutiveFailures} failures</Text>
+                          <Text c="dimmed" size="xs">{localTime(peer.nextAttemptAt)}</Text>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </ScrollArea>
+            )}
+          </Card>
 
           <Card withBorder padding="lg">
             <SectionTitle

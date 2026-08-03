@@ -1,6 +1,6 @@
 # Thalweg Console and Mesh Lab Specification
 
-Last reviewed: 2026-08-02
+Last reviewed: 2026-08-03
 
 ## Purpose
 
@@ -39,8 +39,8 @@ Browser GUI ────┘
 - `thalweg console` or `thalweg console tui` launches the terminal interface.
 - `thalweg console web` launches the local browser sidecar.
 - Both show daemon availability, identity, versions, memberships, addresses,
-  recent-window stream summaries, events, feature support, and explicit
-  prototype limitations.
+  remembered peer health, recent-window stream summaries, events, feature
+  support, and explicit prototype limitations.
 - The TUI refreshes automatically, retains a fixed node/network header, scrolls
   with `j`/`k`, and changes networks with left/right.
 - The browser sidecar binds only to loopback, generates a randomized session
@@ -67,8 +67,10 @@ Not yet implemented from Console 0:
 - Live subscription/tail in either frontend.
 - Cursor-based pagination. The bounded diagnostic query now explicitly requests
   newest-first results.
-- Daemon uptime, storage aggregates, peer health, synchronization state, or
-  topology edges; these are labeled unsupported instead of inferred.
+- Daemon uptime, storage aggregates, topology edges, active page-level
+  synchronization progress, or a durable lag model. Peer rows expose the last
+  completed sync result and retry health without claiming continuous
+  convergence.
 - Mesh Lab or any state-changing console operation.
 
 ## Goals
@@ -352,7 +354,7 @@ each step:
 
 The current daemon can now exercise manual cross-device convergence, partial
 transfer recovery, restart-triggered synchronization, and network isolation.
-Continuous live fanout is not implemented, so the lab must trigger `mesh_sync`
+Continuous live fanout is not implemented, so the lab should trigger `mesh_sync`
 after publishing or reconnecting.
 
 ## Required Daemon Read Contracts
@@ -361,6 +363,7 @@ Existing actions that the first prototype can reuse:
 
 - `network_status`
 - `network_list`
+- `mesh_peer_list`
 - `event_query`
 - `siphon_register`
 - `siphon_unregister`
@@ -374,12 +377,14 @@ Mesh Lab also uses these existing state-changing actions:
 - `mesh_dial`
 - `mesh_sync`
 
-The dashboard will eventually require versioned, paginated read contracts for:
+The dashboard will eventually require additional versioned, paginated read
+contracts for:
 
 - Daemon version, uptime, resource health, and storage summary.
 - Per-network status beyond the existing membership list.
-- Known peer list and connection details.
-- Synchronization cursors, lag, and last convergence.
+- Rich connection details and topology edges beyond the known-peer list.
+- Synchronization cursors, active progress, lag, and stronger convergence
+  evidence beyond the persisted last result.
 - Stream list and aggregate statistics.
 - Retention/replica availability.
 - Durable siphons, catchments, executions, checkpoints, and failures.

@@ -167,10 +167,11 @@ func (m tuiModel) View() string {
 
 	overview := renderOverview(m.snapshot, contentWidth)
 	addresses := renderAddresses(m.snapshot, contentWidth)
+	peers := renderPeers(m.snapshot, contentWidth)
 	streams := renderStreams(m.snapshot, contentWidth)
 	events := renderEvents(m.snapshot, contentWidth, m.height)
 	warnings := renderWarnings(m.snapshot, contentWidth)
-	bodySections = append(bodySections, overview, addresses, streams, events)
+	bodySections = append(bodySections, overview, addresses, peers, streams, events)
 	if warnings != "" {
 		bodySections = append(bodySections, warnings)
 	}
@@ -238,7 +239,25 @@ func renderAddresses(snapshot Snapshot, width int) string {
 	if addressCount == 0 {
 		lines = append(lines, tuiSubtle.Render("No advertised addresses."))
 	}
-	lines = append(lines, tuiSubtle.Render("Peer health and connection edges are unavailable in daemon protocol v1."))
+	return tuiPanel.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func renderPeers(snapshot Snapshot, width int) string {
+	lines := []string{tuiHeading.Render("Peers · " + emptyFallback(snapshot.SelectedNetwork, "no network"))}
+	if len(snapshot.Peers) == 0 {
+		lines = append(lines, tuiSubtle.Render("No known peers for this network."))
+	}
+	for _, peer := range snapshot.Peers {
+		state := peer.State
+		if peer.Connected {
+			state += " · connected"
+		}
+		lines = append(lines, fmt.Sprintf("%-18s %-22s last sync %s",
+			truncate(shortID(peer.PeerID), 18), truncate(state, 22), compactTime(peer.LastSuccessAt)))
+		if peer.LastError != "" {
+			lines = append(lines, tuiSubtle.Render("  "+truncate(peer.LastError, width-8)))
+		}
+	}
 	return tuiPanel.Width(width).Render(strings.Join(lines, "\n"))
 }
 

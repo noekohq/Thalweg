@@ -43,11 +43,18 @@ type Message struct {
 }
 
 type Response struct {
-	ID              string `json:"id,omitempty"`
-	ProtocolVersion int    `json:"protocolVersion"`
-	Success         bool   `json:"success"`
-	Data            any    `json:"data,omitempty"`
-	Error           string `json:"error,omitempty"`
+	ID              string         `json:"id,omitempty"`
+	ProtocolVersion int            `json:"protocolVersion"`
+	Success         bool           `json:"success"`
+	Data            any            `json:"data,omitempty"`
+	Error           string         `json:"error,omitempty"`
+	ErrorDetails    *ResponseError `json:"errorDetails,omitempty"`
+}
+
+type ResponseError struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	Retryable bool   `json:"retryable"`
 }
 
 type StreamMessage struct {
@@ -110,6 +117,12 @@ type Daemon struct {
 	discoveryMu        sync.Mutex
 	discoveryService   io.Closer
 	discoveredPeers    map[peer.ID]peer.AddrInfo
+
+	meshSyncInterval time.Duration
+	meshPeerMu       sync.Mutex
+	meshSyncMu       sync.Mutex
+	meshSyncing      map[string]struct{}
+	meshLeaving      map[string]struct{}
 }
 
 type clientConn struct {
@@ -137,6 +150,7 @@ type Config struct {
 	DBPath             string
 	P2PListenAddresses []string
 	Debug              bool
+	MeshSyncInterval   time.Duration
 }
 
 func New(path string, dbPath string) (*Daemon, error) {
@@ -210,10 +224,16 @@ func NewWithConfig(config Config) (*Daemon, error) {
 		enrollmentOffers:   make(map[string]enrollmentOffer),
 		enrollmentRequests: make(map[string]*pendingEnrollment),
 		discoveredPeers:    make(map[peer.ID]peer.AddrInfo),
+		meshSyncInterval:   config.MeshSyncInterval,
+		meshSyncing:        make(map[string]struct{}),
+		meshLeaving:        make(map[string]struct{}),
 		debug:              config.Debug,
 		logger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 		})),
+	}
+	if d.meshSyncInterval == 0 {
+		d.meshSyncInterval = 30 * time.Second
 	}
 
 	d.p2p.SetStreamHandler(meshProtocolID, d.handleMeshStream)
@@ -384,46 +404,35 @@ func (d *Daemon) Handle(conn net.Conn) {
 	for scanner.Scan() {
 		var msg Message
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
-			client.Encode(Response{
-				ProtocolVersion: currentLocalProtocolVersion,
-				Success:         false,
-				Error:           "invalid JSON structure",
-			})
+			d.writeLocalError(client, "", "invalid_request", "invalid JSON structure", false)
 			continue
 		}
 		if msg.ProtocolVersion != 0 && msg.ProtocolVersion != currentLocalProtocolVersion {
-			client.Encode(Response{
-				ID:              msg.ID,
-				ProtocolVersion: currentLocalProtocolVersion,
-				Success:         false,
-				Error: fmt.Sprintf(
+			d.writeLocalError(
+				client,
+				msg.ID,
+				"protocol_mismatch",
+				fmt.Sprintf(
 					"unsupported protocol version %d (daemon supports %d)",
 					msg.ProtocolVersion,
 					currentLocalProtocolVersion,
 				),
-			})
+				false,
+			)
 			continue
 		}
 
 		handler, exists := d.routes[msg.Action]
 		if !exists {
-			client.Encode(Response{
-				ID:              msg.ID,
-				ProtocolVersion: currentLocalProtocolVersion,
-				Success:         false,
-				Error:           fmt.Sprintf("unknown action: %s", msg.Action),
-			})
+			d.writeLocalError(client, msg.ID, "unknown_action", fmt.Sprintf("unknown action: %s", msg.Action), false)
 			continue
 		}
 
 		data, err := handler(client, msg.Payload)
 		if err != nil {
-			client.Encode(Response{
-				ID:              msg.ID,
-				ProtocolVersion: currentLocalProtocolVersion,
-				Success:         false,
-				Error:           err.Error(),
-			})
+			code, retryable := classifyLocalError(err)
+			d.trace(false, "ipc.action", "local action failed", "action", msg.Action, "requestId", msg.ID, "errorCode", code, "retryable", retryable, "error", err)
+			d.writeLocalError(client, msg.ID, code, err.Error(), retryable)
 			continue
 		}
 
@@ -441,12 +450,42 @@ func (d *Daemon) Handle(conn net.Conn) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		_ = client.Encode(Response{
-			ProtocolVersion: currentLocalProtocolVersion,
-			Success:         false,
-			Error:           fmt.Sprintf("read local request (maximum %d bytes): %v", localMaxRequestBytes, err),
-		})
+		d.writeLocalError(
+			client,
+			"",
+			"request_too_large",
+			fmt.Sprintf("read local request (maximum %d bytes): %v", localMaxRequestBytes, err),
+			false,
+		)
 	}
+}
+
+func (d *Daemon) writeLocalError(client *clientConn, id, code, message string, retryable bool) {
+	_ = client.Encode(Response{
+		ID:              id,
+		ProtocolVersion: currentLocalProtocolVersion,
+		Success:         false,
+		Error:           message,
+		ErrorDetails: &ResponseError{
+			Code:      code,
+			Message:   message,
+			Retryable: retryable,
+		},
+	})
+}
+
+func classifyLocalError(err error) (string, bool) {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded", true
+	case errors.Is(err, context.Canceled):
+		return "canceled", true
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) {
+		return "unavailable", true
+	}
+	return "action_failed", false
 }
 
 func (d *Daemon) registerRoutes() {
@@ -525,6 +564,42 @@ func (d *Daemon) registerRoutes() {
 
 	d.Register("network_list", func(_ *clientConn, _ json.RawMessage) (any, error) {
 		return d.memberships.list(), nil
+	})
+
+	d.Register("network_leave", func(_ *clientConn, payload json.RawMessage) (any, error) {
+		var args struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(payload, &args); err != nil {
+			return nil, err
+		}
+		if err := d.startMeshNetworkLeave(args.Name); err != nil {
+			return nil, err
+		}
+		defer d.finishMeshNetworkLeave(args.Name)
+		membership, err := d.memberships.leave(args.Name)
+		if err != nil {
+			return nil, err
+		}
+		if err := d.removeMeshPeersForNetwork(args.Name); err != nil {
+			return nil, fmt.Errorf("left network, but failed to remove persisted peers: %w", err)
+		}
+		return map[string]any{
+			"membership": membership,
+			"left":       true,
+		}, nil
+	})
+
+	d.Register("mesh_peer_list", func(_ *clientConn, payload json.RawMessage) (any, error) {
+		var args struct {
+			Network string `json:"network"`
+		}
+		if len(payload) > 0 {
+			if err := json.Unmarshal(payload, &args); err != nil {
+				return nil, err
+			}
+		}
+		return d.listMeshPeers(args.Network)
 	})
 
 	d.Register("event_ingest", func(_ *clientConn, payload json.RawMessage) (any, error) {
@@ -735,19 +810,13 @@ func (d *Daemon) registerRoutes() {
 		defer cancel()
 		probe := d.debugTCPProbe(args.TargetAddr, args.Debug)
 		d.trace(args.Debug, "mesh.connect", "starting libp2p sync connection", "network", args.Network, "target", args.TargetAddr, "tcpProbe", probe)
-		if err := d.p2p.Connect(ctx, *info); err != nil {
-			if args.Debug {
-				return nil, fmt.Errorf("failed to connect to peer: %w (debug: %s; tcp source-port reuse disabled)", err, probe)
-			}
-			return nil, fmt.Errorf("connect to mesh peer: %w", err)
-		}
-		d.trace(args.Debug, "mesh.sync", "libp2p connection established; starting authenticated sync", "remotePeerId", info.ID.String())
-		result, err := d.synchronizePeer(ctx, info.ID, args.Network)
+		d.trace(args.Debug, "mesh.sync", "starting authenticated synchronization", "remotePeerId", info.ID.String())
+		result, err := d.synchronizeKnownPeer(ctx, *info, args.Network, args.TargetAddr)
 		if err != nil {
+			if args.Debug {
+				return nil, fmt.Errorf("synchronize mesh peer: %w (debug: %s; tcp source-port reuse disabled)", err, probe)
+			}
 			return nil, fmt.Errorf("synchronize mesh peer: %w", err)
-		}
-		if err := d.persistMeshPeer(args.Network, info.ID, args.TargetAddr); err != nil {
-			return nil, fmt.Errorf("synchronized, but failed to persist mesh peer: %w", err)
 		}
 		return result, nil
 	})
@@ -1429,79 +1498,10 @@ func (d *Daemon) restorePeers() {
 	})
 }
 
-type persistedMeshPeer struct {
-	Network string `json:"network"`
-	Address string `json:"address"`
-}
-
-func (d *Daemon) persistMeshPeer(networkName string, peerID peer.ID, address string) error {
-	value, err := json.Marshal(persistedMeshPeer{
-		Network: networkName,
-		Address: address,
-	})
-	if err != nil {
-		return err
-	}
-	key := fmt.Sprintf("mesh-peer-v1:%s:%s", encodeKeyPart(networkName), peerID)
-	return d.store.Update(func(txn *badger.Txn) error {
-		return txn.Set([]byte(key), value)
-	})
-}
-
 func (d *Daemon) restoreMeshPeers() {
-	var records []persistedMeshPeer
-	if err := d.store.View(func(txn *badger.Txn) error {
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
-		defer it.Close()
-		prefix := []byte("mesh-peer-v1:")
-		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
-			var record persistedMeshPeer
-			if err := it.Item().Value(func(value []byte) error {
-				return json.Unmarshal(value, &record)
-			}); err != nil {
-				return err
-			}
-			records = append(records, record)
-		}
-		return nil
-	}); err != nil {
-		fmt.Printf("Failed to load persisted mesh peers: %s\n", err)
+	if d.meshSyncInterval < 0 {
 		return
 	}
-
-	for _, record := range records {
-		record := record
-		d.backgroundWG.Add(1)
-		go func() {
-			defer d.backgroundWG.Done()
-			if _, exists := d.memberships.get(record.Network); !exists {
-				fmt.Printf("Cannot restore mesh peer for unmounted network %q\n", record.Network)
-				return
-			}
-			maddr, err := multiaddr.NewMultiaddr(record.Address)
-			if err != nil {
-				fmt.Printf("Cannot restore invalid mesh peer address: %s\n", err)
-				return
-			}
-			info, err := peer.AddrInfoFromP2pAddr(maddr)
-			if err != nil {
-				fmt.Printf("Cannot restore mesh peer info: %s\n", err)
-				return
-			}
-			ctx, cancel := context.WithTimeout(d.ctx, syncTimeout)
-			defer cancel()
-			if err := d.p2p.Connect(ctx, *info); err != nil {
-				fmt.Printf("Failed to reconnect mesh peer %s: %s\n", info.ID, err)
-				return
-			}
-			if _, err := d.synchronizePeer(ctx, info.ID, record.Network); err != nil {
-				fmt.Printf(
-					"Failed to synchronize mesh peer %s for network %q: %s\n",
-					info.ID,
-					record.Network,
-					err,
-				)
-			}
-		}()
-	}
+	d.backgroundWG.Add(1)
+	go d.meshRetryLoop()
 }

@@ -1,4 +1,5 @@
 import { DaemonClient, DaemonEvent } from "./client";
+export { ThalwegDaemonError } from "./client";
 
 export interface ThalwegConfiguration {
   socket: string;
@@ -36,6 +37,11 @@ export interface NetworkInviteResult {
 export interface NetworkJoinResult {
   membership: NetworkMembership;
   joined: boolean;
+}
+
+export interface NetworkLeaveResult {
+  membership: NetworkMembership;
+  left: true;
 }
 
 export interface EnrollmentOffer {
@@ -89,6 +95,21 @@ export interface MeshSyncResult {
   pushed: number;
   pulled: number;
   duplicates: number;
+  conflicts?: string[];
+}
+
+export interface MeshPeerStatus {
+  network: NetworkMembership;
+  peerId: string;
+  address: string;
+  state: "known" | "connected" | "syncing" | "healthy" | "degraded";
+  connected: boolean;
+  lastAttemptAt?: string;
+  lastSuccessAt?: string;
+  lastError?: string;
+  nextAttemptAt?: string;
+  consecutiveFailures: number;
+  lastResult?: MeshSyncResult;
 }
 
 export interface IngestOptions {
@@ -397,6 +418,16 @@ export class Thalweg<
 
   async listNetworks(): Promise<NetworkMembership[]> {
     return this.client.request<NetworkMembership[]>("network_list", {});
+  }
+
+  async leaveNetwork(name: string): Promise<NetworkLeaveResult> {
+    return this.client.request<NetworkLeaveResult>("network_leave", { name });
+  }
+
+  async listMeshPeers(network?: string): Promise<MeshPeerStatus[]> {
+    return this.client.request<MeshPeerStatus[]>("mesh_peer_list", {
+      network: network ?? "",
+    });
   }
 
   async openEnrollment(

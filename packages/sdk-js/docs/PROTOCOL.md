@@ -35,6 +35,11 @@ The SDK:
 Requests time out after 30 seconds by default. The current implementation has
 no abort-signal cancellation.
 
+Failed responses reject with `ThalwegDaemonError`. It exposes the requested
+`action`, stable daemon `code`, human-readable `message`, and `retryable` hint.
+The client still accepts the legacy top-level `error` shape for compatibility
+with older protocol-version-1 daemons.
+
 For `event_ingest`, the SDK forwards the optional producer `eventId`. The daemon
 treats it as network-unique: equivalent retries return the original envelope,
 while conflicting reuse rejects the request. Returned event timestamps are
@@ -50,8 +55,10 @@ The public `Thalweg` class also wraps:
 - `network_invite` as `inviteNetwork(name)`.
 - `network_join` as `joinNetwork(invitation)`.
 - `network_list` as `listNetworks()`.
+- `network_leave` as `leaveNetwork(name)`.
 - `mesh_dial` as `dialMeshPeer(targetAddr, network?)`.
 - `mesh_sync` as `syncMeshPeer(targetAddr, network?)`.
+- `mesh_peer_list` as `listMeshPeers(network?)`.
 - `enrollment_listen` / `enrollment_close` as `openEnrollment()` and
   `closeEnrollment()`.
 - `enrollment_requests` and approval/denial as `listEnrollmentRequests()` and
@@ -64,8 +71,10 @@ credentials and should be treated as secret. The invite result carries
 `credentialMode: "shared-bearer"` because protocol version 1 reissues the
 persisted shared credential rather than creating a revocable enrollment token.
 
-`syncMeshPeer()` returns typed inventory and transfer counts. Empty daemon
-queries are guaranteed to return arrays rather than `null`.
+`syncMeshPeer()` returns typed inventory and transfer counts. `listMeshPeers()`
+returns persisted attempt, success, retry, failure, and last-result data for
+remembered authorized peers. Empty daemon queries are guaranteed to return
+arrays rather than `null`.
 
 ## Subscription Pushes
 

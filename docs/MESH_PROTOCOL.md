@@ -21,8 +21,9 @@ a random 32-byte secret, encoded as unpadded base64url. Secrets are stored in
 
 Invitations use `thalweg1:` followed by base64url-encoded JSON containing the
 credential and invitation version `1`. Invitations are bearer credentials:
-anyone who obtains one can authenticate as a member. Rotation, revocation,
-expiry, and network leave are not implemented yet.
+anyone who obtains one can authenticate as a member. Rotation, revocation, and
+expiry are not implemented yet. A local node may leave a network, but that does
+not invalidate credentials held elsewhere.
 
 The local `network_invite` action may reissue an invitation from a mounted
 membership so operators do not need to archive invitation strings. In version
@@ -70,8 +71,12 @@ Successful `mesh_dial` calls persist a network-scoped peer:
 mesh-peer-v1:{networkB64}:{peerId}
 ```
 
-Startup reconnects and reauthenticates each scoped peer. A plain physical
-libp2p connection is never treated as network authorization.
+The daemon periodically reconnects, reauthenticates, and synchronizes each
+scoped peer. Failures use bounded exponential backoff, and the latest attempt,
+success, error, retry time, and synchronization result are persisted for
+operator inspection. A plain physical libp2p connection is never treated as
+network authorization, and an unauthenticated address is never enrolled in the
+retry loop.
 
 ## Inventory and Event Synchronization
 
@@ -117,8 +122,12 @@ and transfers only events still missing.
 - Events whose encoded page exceeds 1 MiB cannot synchronize.
 - A page is applied event-by-event rather than as one batch transaction.
 - IDs inserted before an active cursor position wait until the next session.
-- There is no live fanout, rate limiting, peer-health model, or periodic
-  background retry beyond startup restoration.
+- There is no live fanout, rate limiting, durable synchronization cursor, or
+  proof that a previously successful peer remains converged between polling
+  attempts.
+- Background retries are sequential and use the last known address; address
+  discovery and multi-address selection are not yet implemented for mounted
+  peers.
 
 ## Enrollment
 

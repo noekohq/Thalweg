@@ -54,12 +54,15 @@ go run . spawn
 
 - `Thalweg<Payloads, Basins>` binds stream names to payload types.
 - `ingest()` and `query()` communicate with the daemon.
-- `createNetwork()`, `inviteNetwork()`, `joinNetwork()`, and `listNetworks()`
+- `createNetwork()`, `inviteNetwork()`, `joinNetwork()`, `leaveNetwork()`, and `listNetworks()`
   manage mounted memberships without exposing stored secrets through list
   results.
 - `dialMeshPeer()` authenticates one explicitly selected network.
 - `syncMeshPeer()` performs bounded bidirectional synchronization for one
   explicitly selected network.
+- `listMeshPeers()` exposes remembered peer and last-synchronization health.
+- `ThalwegDaemonError` exposes structured action, code, message, and retryable
+  fields while retaining compatibility with legacy version-1 errors.
 - Enrollment APIs open time-bounded offers, discover candidates, inspect and
   decide pending requests, and join only after approval.
 - `siphon()` starts from all streams.

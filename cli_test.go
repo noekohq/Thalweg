@@ -262,6 +262,49 @@ func TestPeerSyncCommandMapsPublicFlags(t *testing.T) {
 	}
 }
 
+func TestPeerListCommandSupportsNetworkFilter(t *testing.T) {
+	socketPath := startFakeDaemon(t, func(request ipcRequest) (any, string) {
+		if request.Action != "mesh_peer_list" {
+			t.Fatalf("action = %q, want mesh_peer_list", request.Action)
+		}
+		payload := request.Payload.(map[string]any)
+		if payload["network"] != "home" {
+			t.Fatalf("payload = %#v", payload)
+		}
+		return []map[string]any{{"peerId": "peer-id", "state": "healthy"}}, ""
+	})
+	setTestConfig(t, socketPath)
+	var stdout, stderr bytes.Buffer
+	code := runCLI([]string{"peer", "list", "--network", "home"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 || !strings.Contains(stdout.String(), `"state": "healthy"`) {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestNetworkLeaveRequiresConfirmationAndUsesDaemonIPC(t *testing.T) {
+	socketPath := startFakeDaemon(t, func(request ipcRequest) (any, string) {
+		if request.Action != "network_leave" {
+			t.Fatalf("action = %q, want network_leave", request.Action)
+		}
+		payload := request.Payload.(map[string]any)
+		if payload["name"] != "home" {
+			t.Fatalf("payload = %#v", payload)
+		}
+		return map[string]any{"left": true}, ""
+	})
+	setTestConfig(t, socketPath)
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"network", "leave", "home"}, strings.NewReader(""), &stdout, &stderr); code == 0 {
+		t.Fatal("network leave succeeded without --yes")
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code := runCLI([]string{"network", "leave", "--yes", "home"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 || !strings.Contains(stdout.String(), `"left": true`) {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestDaemonErrorBecomesCLIError(t *testing.T) {
 	socketPath := startFakeDaemon(t, func(request ipcRequest) (any, string) {
 		return nil, "network already exists"

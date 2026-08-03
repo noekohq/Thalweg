@@ -35,6 +35,8 @@ bun run demo:velotic
 - `siphon_register`: subscribe to future events for a network and stream set.
 - `siphon_unregister`: stop a live subscription.
 - `network_status`: return local daemon identity and p2p addresses.
+- `network_list` / `network_leave`: inspect or unmount local memberships.
+- `mesh_sync` / `mesh_peer_list`: converge and inspect remembered peers.
 
 Events are stored in BadgerDB with tri-temporal fields:
 
@@ -115,6 +117,7 @@ thalweg status
 thalweg network create home
 thalweg network invite home
 thalweg network list
+thalweg peer list --network home
 thalweg event ingest \
   --network home \
   --stream user:note \
@@ -162,9 +165,10 @@ thalweg console web
 ```
 
 Both surfaces show daemon state, identity, versions, mounted networks,
-advertised addresses, streams, recent events, capability gaps, and prototype
-warnings. The web command prints a randomized local session URL and never binds
-beyond loopback. See [Console and Mesh Lab](docs/CONSOLE.md).
+advertised addresses, remembered peer health, streams, recent events,
+capability gaps, and prototype warnings. The web command prints a randomized
+local session URL and never binds beyond loopback. See
+[Console and Mesh Lab](docs/CONSOLE.md).
 
 ## Development run
 
@@ -190,8 +194,8 @@ go run . spawn \
 
 Equivalent environment variables are `THALWEG_SOCKET_PATH`,
 `THALWEG_STORAGE_PATH`, and comma-separated `THALWEG_P2P_LISTEN_ADDRS`. A
-stable listen address is required for persisted-peer restoration until
-discovery exists.
+stable listen address is required for periodic persisted-peer synchronization
+until mounted-peer address discovery exists.
 
 ## Simple Velotic Demo
 

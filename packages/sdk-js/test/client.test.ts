@@ -4,6 +4,7 @@ import { unlink } from "node:fs/promises";
 import {
   DaemonClient,
   THALWEG_PROTOCOL_VERSION,
+  ThalwegDaemonError,
 } from "../src/client";
 import { Thalweg } from "../src/index";
 
@@ -90,6 +91,36 @@ describe("DaemonClient protocol framing", () => {
     await expect(client.request("network_status", {})).rejects.toThrow(
       "request network_status timed out",
     );
+  });
+
+  test("surfaces structured daemon error codes and retryability", async () => {
+    const path = await listen((message, socket) => {
+      socket.write(
+        `${JSON.stringify({
+          id: message.id,
+          protocolVersion: THALWEG_PROTOCOL_VERSION,
+          success: false,
+          error: "peer is temporarily unavailable",
+          errorDetails: {
+            code: "unavailable",
+            message: "peer is temporarily unavailable",
+            retryable: true,
+          },
+        })}\n`,
+      );
+    });
+    const client = trackClient(new DaemonClient(path));
+    try {
+      await client.request("mesh_sync", {});
+      throw new Error("request unexpectedly succeeded");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ThalwegDaemonError);
+      expect(error).toMatchObject({
+        action: "mesh_sync",
+        code: "unavailable",
+        retryable: true,
+      });
+    }
   });
 });
 
@@ -223,6 +254,20 @@ describe("Thalweg network membership API", () => {
           joined: true,
         },
         network_list: [{ name: "home", id: "network-id" }],
+        network_leave: {
+          membership: { name: "home", id: "network-id" },
+          left: true,
+        },
+        mesh_peer_list: [
+          {
+            network: { name: "home", id: "network-id" },
+            peerId: "peer-id",
+            address: "/ip4/127.0.0.1/tcp/1/p2p/peer-id",
+            state: "healthy",
+            connected: true,
+            consecutiveFailures: 0,
+          },
+        ],
         enrollment_listen: {
           offer: {
             id: "offer-id",
@@ -310,6 +355,7 @@ describe("Thalweg network membership API", () => {
       await expect(thalweg.listNetworks()).resolves.toEqual([
         { name: "home", id: "network-id" },
       ]);
+      await expect(thalweg.listMeshPeers()).resolves.toHaveLength(1);
       await expect(thalweg.openEnrollment()).resolves.toHaveProperty(
         "offer.id",
         "offer-id",
@@ -343,6 +389,10 @@ describe("Thalweg network membership API", () => {
         pulled: 1,
         duplicates: 0,
       });
+      await expect(thalweg.leaveNetwork("home")).resolves.toEqual({
+        membership: { name: "home", id: "network-id" },
+        left: true,
+      });
     } finally {
       await thalweg.close();
     }
@@ -352,6 +402,7 @@ describe("Thalweg network membership API", () => {
       "network_invite",
       "network_join",
       "network_list",
+      "mesh_peer_list",
       "enrollment_listen",
       "enrollment_requests",
       "enrollment_discover",
@@ -360,13 +411,14 @@ describe("Thalweg network membership API", () => {
       "enrollment_join",
       "mesh_dial",
       "mesh_sync",
+      "network_leave",
     ]);
     expect(seen[1]?.payload).toEqual({ name: "home" });
-    expect(seen[10]?.payload).toEqual({
+    expect(seen[11]?.payload).toEqual({
       targetAddr: "/ip4/127.0.0.1/tcp/1/p2p/peer-id",
       network: "home",
     });
-    expect(seen[11]?.payload).toEqual({
+    expect(seen[12]?.payload).toEqual({
       targetAddr: "/ip4/127.0.0.1/tcp/1/p2p/peer-id",
       network: "home",
     });

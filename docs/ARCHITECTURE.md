@@ -102,9 +102,10 @@ The current daemon:
 - Disables TCP source-port reuse until hole punching is implemented, avoiding
   same-port macOS LAN dial failures.
 
-Replication currently runs on explicit `mesh_sync` and when a persisted peer is
-restored at startup. There is no continuous live fanout or periodic background
-retry.
+Replication runs on explicit `mesh_sync` and on a periodic loop for persisted,
+already-authorized peers. The daemon records peer health and applies bounded
+exponential backoff after failures. There is no continuous live fanout,
+mounted-peer address discovery, or durable synchronization cursor.
 
 ## Target Topology
 

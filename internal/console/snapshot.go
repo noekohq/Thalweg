@@ -25,6 +25,7 @@ type Snapshot struct {
 	Error           string          `json:"error,omitempty"`
 	Status          NodeStatus      `json:"status"`
 	Networks        []Network       `json:"networks"`
+	Peers           []MeshPeer      `json:"peers"`
 	SelectedNetwork string          `json:"selectedNetwork,omitempty"`
 	Events          []Event         `json:"events"`
 	Streams         []StreamSummary `json:"streams"`
@@ -47,6 +48,22 @@ type NodeStatus struct {
 type Network struct {
 	Name string `json:"name"`
 	ID   string `json:"id"`
+}
+
+type MeshPeer struct {
+	Network struct {
+		Name string `json:"name"`
+		ID   string `json:"id"`
+	} `json:"network"`
+	PeerID              string `json:"peerId"`
+	Address             string `json:"address"`
+	State               string `json:"state"`
+	Connected           bool   `json:"connected"`
+	LastAttemptAt       string `json:"lastAttemptAt,omitempty"`
+	LastSuccessAt       string `json:"lastSuccessAt,omitempty"`
+	LastError           string `json:"lastError,omitempty"`
+	NextAttemptAt       string `json:"nextAttemptAt,omitempty"`
+	ConsecutiveFailures int    `json:"consecutiveFailures"`
 }
 
 type Event struct {
@@ -93,10 +110,11 @@ func (s Service) Snapshot(ctx context.Context, requestedNetwork string) Snapshot
 			AddressGroups: make(map[string][]string),
 		},
 		Networks: make([]Network, 0),
+		Peers:    make([]MeshPeer, 0),
 		Events:   make([]Event, 0),
 		Streams:  make([]StreamSummary, 0),
 		Warnings: []string{
-			"Continuous peer fanout is not implemented; synchronization is explicit or startup-triggered.",
+			"Continuous live fanout is not implemented; known peers synchronize periodically with bounded retry.",
 			"Event results are limited to a recent 24-hour diagnostic window.",
 		},
 		Features: prototypeFeatures(),
@@ -133,6 +151,12 @@ func (s Service) Snapshot(ctx context.Context, requestedNetwork string) Snapshot
 	}
 	if result.SelectedNetwork == "" {
 		return result
+	}
+	if err := s.Caller.Call(ctx, "mesh_peer_list", map[string]any{"network": result.SelectedNetwork}, &result.Peers); err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Peer health unavailable: %v", err))
+	}
+	if result.Peers == nil {
+		result.Peers = make([]MeshPeer, 0)
 	}
 
 	limit := s.EventLimit
@@ -199,7 +223,7 @@ func prototypeFeatures() []Feature {
 	return []Feature{
 		{Name: "Local timeline", Supported: true, Detail: "Status, memberships, streams, and recent events"},
 		{Name: "Enrollment", Supported: true, Detail: "Available through the operator CLI"},
-		{Name: "Peer topology", Supported: false, Detail: "Daemon peer-health read contract is not implemented"},
+		{Name: "Peer health", Supported: true, Detail: "Known peer connection, retry, and last-sync state"},
 		{Name: "Storage summary", Supported: false, Detail: "Daemon aggregate read contract is not implemented"},
 		{Name: "Processing health", Supported: false, Detail: "Durable siphons and executions are not implemented"},
 	}

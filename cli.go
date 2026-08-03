@@ -58,6 +58,8 @@ func runCLI(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = runEvent(args[1:], stdout, stderr)
 	case "peer":
 		err = runPeer(args[1:], stdout, stderr)
+	case "lab":
+		err = runLab(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n", args[0])
 		printUsage(stderr)
@@ -92,6 +94,7 @@ Usage:
   thalweg network listen NAME [--duration 10m] [--debug]
   thalweg network join [INVITATION]
   thalweg network list
+  thalweg network leave --yes NAME
   thalweg console [tui] [--network NAME]
   thalweg console web [--network NAME] [--listen 127.0.0.1:42424]
   thalweg event ingest --network NAME --stream NAME --payload JSON
@@ -100,6 +103,9 @@ Usage:
   thalweg event conflicts resolve --network NAME --id EVENT_ID
   thalweg peer dial --network NAME --address MULTIADDR
   thalweg peer sync --network NAME --address MULTIADDR
+  thalweg peer list [--network NAME]
+  thalweg lab publish --network NAME [--stream NAME] [--count 3] [--data JSON]
+  thalweg lab verify --network NAME --run-id ID [--origin DEVICE_ID] [--expected 3]
   thalweg join [--address MULTIADDR] [--debug]
   thalweg version
 
@@ -399,7 +405,7 @@ func runSimpleAction(
 
 func runNetwork(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: thalweg network [create NAME | invite NAME | join [INVITATION] | list]")
+		return fmt.Errorf("usage: thalweg network [create NAME | invite NAME | join [INVITATION] | list | leave --yes NAME]")
 	}
 	switch args[0] {
 	case "create":
@@ -453,6 +459,18 @@ func runNetwork(args []string, stdin io.Reader, stdout, stderr io.Writer) error 
 		return invokeAndPrint(*socket, "network_join", map[string]any{"invitation": invitation}, stdout)
 	case "list":
 		return runSimpleAction("network list", args[1:], "network_list", map[string]any{}, stdout, stderr)
+	case "leave":
+		flags := flag.NewFlagSet("network leave", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		socket := flags.String("socket", "", "Unix socket path")
+		confirmed := flags.Bool("yes", false, "confirm removal of the local membership credential")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 1 || !*confirmed {
+			return fmt.Errorf("usage: thalweg network leave --yes NAME")
+		}
+		return invokeAndPrint(*socket, "network_leave", map[string]any{"name": flags.Arg(0)}, stdout)
 	default:
 		return fmt.Errorf("unknown network command %q", args[0])
 	}
@@ -802,7 +820,20 @@ func runEventConflicts(args []string, stdout, stderr io.Writer) error {
 
 func runPeer(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: thalweg peer [dial | sync] --network NAME --address MULTIADDR")
+		return fmt.Errorf("usage: thalweg peer [dial | sync | list]")
+	}
+	if args[0] == "list" {
+		flags := flag.NewFlagSet("peer list", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		socket := flags.String("socket", "", "Unix socket path")
+		network := flags.String("network", "", "optional logical network name")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 {
+			return fmt.Errorf("peer list does not accept positional arguments")
+		}
+		return invokeAndPrint(*socket, "mesh_peer_list", map[string]any{"network": *network}, stdout)
 	}
 	action := ""
 	switch args[0] {

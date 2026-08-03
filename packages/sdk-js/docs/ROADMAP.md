@@ -198,14 +198,17 @@ Definition of done:
 - [x] Support creating and joining multiple local memberships.
 - [x] Reissue the current shared-bearer invitation without requiring
   applications to persist invitation strings.
+- [x] Leave a local network explicitly without exposing stored credentials.
 - Replace shared-bearer invitations with expiring enrollment credentials and
   per-device revocation.
 - Support conveniently selecting a configured client for each mounted network.
-- Expose peer, synchronization, retention, and replica-health status.
+- [x] Expose remembered peer and last-synchronization health.
+- Expose retention, replica availability, active progress, and durable lag.
 - Represent explicit cross-network bridge configuration without ambient access.
 - Provide inspection APIs or CLI support for siphons, executions, retries,
   checkpoints, failures, and causal chains.
-- Add version negotiation and actionable compatibility errors.
+- [x] Expose machine-readable daemon error codes and retryability hints.
+- Add handshake/feature negotiation and richer compatibility categories.
 
 Exit guarantee:
 

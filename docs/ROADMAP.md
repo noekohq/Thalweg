@@ -1,6 +1,6 @@
 # Thalweg System Roadmap
 
-Last reviewed: 2026-08-02
+Last reviewed: 2026-08-03
 
 ## North Star
 
@@ -78,7 +78,8 @@ Implemented:
 - Event ingestion and query actions.
 - Future-only in-memory siphon registration.
 - Subscription cleanup when a socket disconnects.
-- Network status and manual peer dialing actions.
+- Network status, network leave, peer-health inspection, and manual peer
+  dialing actions.
 - Daemon, local protocol, and storage schema versions in network status.
 - Restrictive Unix socket permissions and protection against deleting an active
   socket or a non-socket path.
@@ -99,8 +100,9 @@ Prototype limitations:
 
 - The socket relies on local filesystem permissions for access control and has
   message versioning but no handshake or feature negotiation.
-- Local request lines have a 1 MiB limit, but handlers have no per-action
-  deadlines and errors are not yet structured.
+- Local request lines have a 1 MiB limit and errors include stable codes and
+  retryability hints. Handlers still lack per-action server-side deadlines and
+  feature negotiation.
 - Subscription delivery uses bounded per-client queues and disconnects slow
   consumers; durable acknowledgement and replay are not implemented.
 - Socket integration coverage currently exercises lifecycle and network status,
@@ -113,7 +115,8 @@ Implemented:
 - A restart-stable libp2p host is created from a private key stored with `0600`
   permissions.
 - Peers can be dialed manually by multiaddress.
-- Dialed peer addresses are remembered and retried after restart.
+- Authorized peer addresses and synchronization health are remembered and
+  retried periodically with bounded exponential backoff.
 - A prototype stream handler accepts and logs text.
 - Versioned `/thalweg/mesh/1.0.0` mutual membership authentication bound to
   physical libp2p peer IDs.
@@ -121,18 +124,21 @@ Implemented:
   credentials.
 - Local create, join, redacted list, and authenticated network-scoped dial
   actions.
-- Manual and startup-triggered bidirectional synchronization with digest
-  conflict detection.
+- Manual and periodic bidirectional synchronization with digest conflict
+  detection.
+- Readable peer state, last attempt/success, retry schedule, failure count, and
+  last synchronization result.
 - Lossless preserve-both conflict resolution with replicated audit events,
   deterministic recovered IDs, and logical-history convergence.
 
 Not implemented:
 
-- Discovery.
-- Continuous live fanout and periodic background retry.
+- General mounted-peer address discovery and WAN rendezvous.
+- Continuous live fanout.
 - Durable synchronization cursors and incremental storage indexes.
 - Replication and retention policies.
-- Credential rotation, revocation, expiry, or network leave.
+- Credential rotation, revocation, or expiry. Local network leave does not
+  revoke version-1 bearer credentials held by other devices.
 - Remote inventory/event framing and feature negotiation beyond handshake
   versioning.
 
@@ -206,7 +212,10 @@ Definition of done:
   remains safely colocated with the selected storage root.
 - Package background service registration, signed release-binary upgrades,
   and uninstallation.
-- Add size limits, request deadlines, structured errors, and structured logs.
+- [x] Bound local request lines and return machine-readable error codes with
+  retryability hints while retaining legacy error messages.
+- Add action-specific server-side deadlines and broader structured operational
+  logs.
 - Add socket integration tests for every action, malformed input, disconnects,
   subscription cleanup, and restarts.
 - [x] Add restart tests for identity, HLC ordering, duplicate ingestion, and
@@ -227,7 +236,8 @@ Definition of done:
 - [x] Model physical device identity separately from per-network membership.
 - [x] Create, join, and inspect credentials for multiple networks.
 - [x] Explicitly reissue the current version-1 shared-bearer invitation.
-- Add network leave plus credential rotation and revocation.
+- [x] Add local network leave and remove its remembered peer retry records.
+- Add credential rotation and independently revocable membership.
 - Replace shared-bearer invitations with expiring enrollment credentials and
   independently revocable device membership.
 - [x] Give each network independent membership keys and persisted peers.
@@ -251,7 +261,10 @@ Definition of done:
   provide lossless operator-driven preserve-both resolution.
 - [x] Merge clocks and events deterministically after partitions.
 - Resume interrupted synchronization without restarting from the beginning.
-- Expose synchronization progress, peer health, and last convergence state.
+- [x] Expose persisted peer health, retry state, and the last completed
+  synchronization result.
+- Expose page-level synchronization progress and a stronger convergence/lag
+  model.
 - [x] Test offline creation, reconnect, duplicate delivery, concurrent sync,
   network isolation, and multi-network membership in-process.
 - [x] Test Linux VM/macOS host convergence, stable-address restoration, offline
@@ -365,9 +378,10 @@ development harness. Their detailed product and security specification lives in
 ### Console 1: Read-Only Mesh Dashboard
 
 - Show multiple network memberships without merging their data.
-- Visualize peer topology and connection state per network.
-- Show synchronization progress, convergence, stream statistics, retention, and
-  replica availability.
+- [x] Show a per-network known-peer table with connection and health state.
+- Visualize topology edges and richer connection detail.
+- Show active synchronization progress, convergence/lag, stream statistics,
+  retention, and replica availability.
 - Surface protocol incompatibility and network-isolation failures.
 
 ### Console 2: Processing Observability

@@ -404,12 +404,9 @@ func (d *Daemon) requestEnrollment(target, offerID, deviceName string, debug boo
 	if err != nil {
 		return nil, fmt.Errorf("mount approved membership: %w", err)
 	}
-	syncResult, err := d.synchronizePeer(ctx, info.ID, membership.Name)
+	syncResult, err := d.synchronizeKnownPeer(ctx, *info, membership.Name, target)
 	if err != nil {
 		return nil, fmt.Errorf("membership joined, but initial sync failed: %w", err)
-	}
-	if err := d.persistMeshPeer(membership.Name, info.ID, target); err != nil {
-		return nil, fmt.Errorf("joined and synchronized, but failed to persist peer: %w", err)
 	}
 	return map[string]any{"membership": membership, "joined": joined, "peerId": info.ID.String(), "sync": syncResult}, nil
 }
