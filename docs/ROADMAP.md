@@ -370,7 +370,10 @@ development harness. Their detailed product and security specification lives in
 
 - Require explicit lab-mode startup and a dedicated test network.
 - Copy peer addresses and perform a confirmed manual dial.
-- Publish deterministic synthetic test events.
+- [x] Publish bounded deterministic synthetic runs through the CLI and an
+  explicitly enabled browser Event Workbench.
+- [x] Verify run/origin sequence coverage on a local replica with scriptable
+  pass/fail output.
 - Guide online, offline, reconnect, restart, and isolation scenarios.
 - Report expected, seen, missing, and duplicated event IDs.
 - Export comparable test reports from both devices.

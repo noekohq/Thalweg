@@ -65,6 +65,7 @@ func runConsoleWeb(args []string, stdout, stderr io.Writer) error {
 	socketFlag := flags.String("socket", "", "Unix socket path")
 	network := flags.String("network", "", "initial mounted network")
 	listen := flags.String("listen", "127.0.0.1:42424", "loopback HTTP listen address")
+	labMode := flags.Bool("lab", false, "enable explicit local test-event operations")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -82,6 +83,7 @@ func runConsoleWeb(args []string, stdout, stderr io.Writer) error {
 		Service: service,
 		Listen:  *listen,
 		Network: *network,
+		Lab:     *labMode,
 		Output:  stdout,
 	})
 }

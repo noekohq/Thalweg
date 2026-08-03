@@ -107,6 +107,49 @@ func TestDiagnosticsAreDownloadableAndRedactedByContract(t *testing.T) {
 	}
 }
 
+func TestLabEndpointsRequireExplicitMode(t *testing.T) {
+	requestBody := strings.NewReader(`{"network":"home","runId":"run-one","expected":1}`)
+	disabled := &WebServer{service: Service{Caller: &fakeCaller{}}, token: "token"}
+	response := httptest.NewRecorder()
+	disabled.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/session/token/api/lab/verify", requestBody))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("disabled lab status = %d", response.Code)
+	}
+
+	caller := &fakeCaller{responses: map[string]any{"event_query": []Event{}}}
+	enabled := &WebServer{service: Service{Caller: caller}, token: "token", lab: true}
+	response = httptest.NewRecorder()
+	enabled.Handler().ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodPost, "/session/token/api/lab/verify", strings.NewReader(`{"network":"home","runId":"run-one","expected":1}`)),
+	)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"complete": false`) {
+		t.Fatalf("enabled lab response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestLabPublishEndpointCreatesBoundedRun(t *testing.T) {
+	caller := &fakeCaller{responses: map[string]any{
+		"network_status": NodeStatus{DeviceID: "device-a"},
+		"network_list":   []Network{{Name: "home", ID: "home-id"}},
+		"event_ingest":   Event{ID: "stored"},
+	}}
+	server := &WebServer{service: Service{Caller: caller}, token: "token", lab: true}
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodPost, "/session/token/api/lab/publish", strings.NewReader(`{
+			"network":"home","count":2,"runId":"web-run","data":{"source":"browser"}
+		}`)),
+	)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"runId": "web-run"`) {
+		t.Fatalf("publish response = %d %s", response.Code, response.Body.String())
+	}
+	if len(caller.calls) != 4 || caller.calls[0].action != "network_status" || caller.calls[1].action != "network_list" || caller.calls[3].action != "event_ingest" {
+		t.Fatalf("publish calls = %#v", caller.calls)
+	}
+}
+
 func TestIPCClientHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

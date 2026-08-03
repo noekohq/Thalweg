@@ -96,7 +96,7 @@ Usage:
   thalweg network list
   thalweg network leave --yes NAME
   thalweg console [tui] [--network NAME]
-  thalweg console web [--network NAME] [--listen 127.0.0.1:42424]
+  thalweg console web [--network NAME] [--listen 127.0.0.1:42424] [--lab]
   thalweg event ingest --network NAME --stream NAME --payload JSON
   thalweg event query --network NAME [--streams A,B] [--from TIME] [--to TIME]
   thalweg event conflicts list --network NAME

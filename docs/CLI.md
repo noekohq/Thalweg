@@ -410,6 +410,51 @@ membership files, or logs directly. Diagnostics exports redact event payloads.
 Recent events are currently limited to the first 100 events in a 24-hour
 diagnostic window because cursor-based dashboard queries are not implemented.
 
+## Repeatable event testing
+
+Publish a bounded deterministic run without hand-writing individual event IDs:
+
+```bash
+thalweg lab publish \
+  --network home \
+  --stream system:mesh_test \
+  --count 3 \
+  --message "MacBook replication smoke test" \
+  --data '{"scenario":"offline-reconnect"}'
+```
+
+The command prints a manifest containing `runId`, `originDeviceId`, and every
+event ID. Test payloads retain the generic JSON under `data` and add a versioned
+run ID, origin, sequence, total, message, and timestamp. Event IDs are derived
+from the run, origin, and sequence. Repeating with the printed `--run-id` is
+therefore an idempotent retry rather than a second batch.
+
+After automatic or explicit peer synchronization, verify the replica on the
+other device:
+
+```bash
+thalweg lab verify \
+  --network home \
+  --run-id RUN_ID \
+  --origin ORIGIN_DEVICE_ID \
+  --expected 3
+```
+
+The JSON result reports seen and missing sequences. An incomplete run exits
+non-zero, making it suitable for shell scripts. The default stream is
+`system:mesh_test`; both commands accept `--stream` when testing another
+namespace.
+
+The browser equivalent is deliberately opt-in:
+
+```bash
+thalweg console web --network home --lab
+```
+
+That session shows the Event Workbench and enables two session-token-protected,
+loopback-only write endpoints. Starting Console without `--lab` does not expose
+lab operations and remains read-only.
+
 ## Configuration precedence
 
 Client and daemon commands resolve values in this order:
@@ -453,6 +498,8 @@ thalweg event conflicts resolve --network NAME --id EVENT_ID
 thalweg peer dial --network NAME --address MULTIADDR
 thalweg peer sync --network NAME --address MULTIADDR
 thalweg peer list [--network NAME]
+thalweg lab publish --network NAME [--stream NAME] [--count 3] [--data JSON]
+thalweg lab verify --network NAME --run-id ID [--origin DEVICE_ID] [--expected 3]
 thalweg version
 ```
 

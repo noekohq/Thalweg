@@ -170,6 +170,18 @@ capability gaps, and prototype warnings. The web command prints a randomized
 local session URL and never binds beyond loopback. See
 [Console and Mesh Lab](docs/CONSOLE.md).
 
+For repeatable event and replication testing, publish a deterministic run and
+verify it on another device:
+
+```bash
+thalweg lab publish --network home --count 3 --data '{"scenario":"smoke"}'
+thalweg lab verify --network home --run-id RUN_ID --origin DEVICE_ID --expected 3
+```
+
+The JSON manifest printed by `publish` supplies `RUN_ID` and `DEVICE_ID`.
+Alternatively, launch the explicitly writable browser workbench with
+`thalweg console web --lab`. Normal Console sessions remain read-only.
+
 ## Development run
 
 The source-tree-compatible command remains:

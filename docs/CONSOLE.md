@@ -71,7 +71,9 @@ Not yet implemented from Console 0:
   synchronization progress, or a durable lag model. Peer rows expose the last
   completed sync result and retry health without claiming continuous
   convergence.
-- Mesh Lab or any state-changing console operation.
+- Guided multi-step Mesh Lab scenarios. The explicitly enabled Event Workbench
+  can publish and verify deterministic generic test runs, but it does not yet
+  orchestrate peer sync, partitions, or comparison reports automatically.
 
 ## Goals
 
@@ -133,6 +135,12 @@ It may:
 
 Mesh Lab must not expose an arbitrary daemon action form. Its supported
 operations are fixed, labeled, and auditable.
+
+The first delivered slice is the Event Workbench. `thalweg console web --lab`
+enables bounded publish and verify operations using the versioned
+`thalweg.mesh_test.v1` payload. Without `--lab`, those HTTP operations return
+404. The same workflow is available headlessly through `thalweg lab publish`
+and `thalweg lab verify`.
 
 ## Initial Deployment Architecture
 
@@ -415,10 +423,11 @@ Develop alongside the secure-mesh milestone.
 
 - Explicit lab-mode startup.
 - Address copy and manual dial.
-- Synthetic event generation.
+- [x] Deterministic synthetic event generation through CLI and browser.
 - Live run ledger.
 - Guided online and partition-recovery workflow.
-- Expected/seen/missing/duplicate comparison.
+- [x] Expected/seen/missing sequence verification on the local replica.
+- Cross-device duplicate comparison and combined reporting.
 - Test report export.
 
 ### Console 1: Read-Only Mesh Dashboard

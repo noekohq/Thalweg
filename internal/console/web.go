@@ -14,6 +14,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"thalweg/internal/lab"
 )
 
 //go:embed web/index.html web/assets/*
@@ -23,6 +25,7 @@ type WebOptions struct {
 	Service Service
 	Listen  string
 	Network string
+	Lab     bool
 	Output  io.Writer
 }
 
@@ -30,6 +33,7 @@ type WebServer struct {
 	service Service
 	token   string
 	html    []byte
+	lab     bool
 }
 
 func RunWeb(ctx context.Context, options WebOptions) error {
@@ -48,7 +52,7 @@ func RunWeb(ctx context.Context, options WebOptions) error {
 	if err != nil {
 		return fmt.Errorf("read embedded console UI: %w", err)
 	}
-	app := &WebServer{service: options.Service, token: token, html: html}
+	app := &WebServer{service: options.Service, token: token, html: html, lab: options.Lab}
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return fmt.Errorf("listen for console on %s: %w", address, err)
@@ -66,10 +70,18 @@ func RunWeb(ctx context.Context, options WebOptions) error {
 		query.Set("network", options.Network)
 		consoleLocation.RawQuery = query.Encode()
 	}
+	if options.Lab {
+		query := consoleLocation.Query()
+		query.Set("lab", "1")
+		consoleLocation.RawQuery = query.Encode()
+	}
 	consoleURL := consoleLocation.String()
 	if options.Output != nil {
 		fmt.Fprintf(options.Output, "Thalweg Console: %s\n", consoleURL)
 		fmt.Fprintln(options.Output, "Bound to loopback only. Press Ctrl-C to stop.")
+		if options.Lab {
+			fmt.Fprintln(options.Output, "Lab mode enabled: this session may publish test events.")
+		}
 	}
 
 	server := &http.Server{
@@ -105,7 +117,71 @@ func (s *WebServer) Handler() http.Handler {
 	mux.HandleFunc(sessionRoot+"assets/", s.serveAsset)
 	mux.HandleFunc(sessionRoot+"api/snapshot", s.serveSnapshot)
 	mux.HandleFunc(sessionRoot+"api/diagnostics", s.serveDiagnostics)
+	mux.HandleFunc(sessionRoot+"api/lab/publish", s.serveLabPublish)
+	mux.HandleFunc(sessionRoot+"api/lab/verify", s.serveLabVerify)
 	return securityHeaders(mux)
+}
+
+func (s *WebServer) serveLabPublish(writer http.ResponseWriter, request *http.Request) {
+	if !s.lab {
+		http.NotFound(writer, request)
+		return
+	}
+	if request.Method != http.MethodPost {
+		writer.Header().Set("Allow", http.MethodPost)
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var input lab.PublishRequest
+	if err := decodeLabRequest(writer, request, &input); err != nil {
+		return
+	}
+	manifest, err := lab.Publish(request.Context(), s.service.Caller, time.Now(), input)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(writer, manifest)
+}
+
+func (s *WebServer) serveLabVerify(writer http.ResponseWriter, request *http.Request) {
+	if !s.lab {
+		http.NotFound(writer, request)
+		return
+	}
+	if request.Method != http.MethodPost {
+		writer.Header().Set("Allow", http.MethodPost)
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var input lab.VerifyRequest
+	if err := decodeLabRequest(writer, request, &input); err != nil {
+		return
+	}
+	result, err := lab.Verify(request.Context(), s.service.Caller, input)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(writer, result)
+}
+
+func decodeLabRequest(writer http.ResponseWriter, request *http.Request, target any) error {
+	request.Body = http.MaxBytesReader(writer, request.Body, 64*1024)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		http.Error(writer, "invalid lab request: "+err.Error(), http.StatusBadRequest)
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			err = fmt.Errorf("multiple JSON values are not allowed")
+		}
+		http.Error(writer, "invalid lab request: "+err.Error(), http.StatusBadRequest)
+		return err
+	}
+	return nil
 }
 
 func (s *WebServer) serveAsset(writer http.ResponseWriter, request *http.Request) {

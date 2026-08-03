@@ -27,6 +27,8 @@ Important entry points:
   installation, upgrade-readiness, and log diagnostics.
 - `internal/console`: shared read-only daemon adapter, snapshot model, Bubble
   Tea TUI, embedded browser UI, security-sensitive routing, and tests.
+- `internal/lab`: bounded deterministic test-event publication and replica
+  sequence verification shared by CLI and the opt-in browser workbench.
 - `scripts/install.sh`: local source-checkout installer.
 - `docs/CLI.md`: install and two-device operator workflow.
 - `docs/ENROLLMENT.md`: discovery/enrollment state machine and limitations.
@@ -126,6 +128,9 @@ creates one `insights:summary` event, and all four print chronologically.
 - Persisted peer health and last synchronization status are now exposed in both
   console frontends. Topology edges, active progress, durable lag, storage
   summaries, and processing health remain unavailable read contracts.
+- `thalweg lab publish` and `thalweg lab verify` remove the need to hand-author
+  individual smoke-test events. `thalweg console web --lab` exposes the same
+  bounded workflow; ordinary Console sessions remain read-only.
 - `data/event.proto` is reserved but currently empty; the active JSON contract
   is shared by a small internal Go IPC package and monorepo documentation.
 

@@ -2,6 +2,37 @@
 
 Last exercised: 2026-07-30
 
+## Repeatable event and replication smoke tests
+
+The lab commands remove hand-authored IDs and JSON from the common two-device
+loop. On device A:
+
+```bash
+thalweg lab publish \
+  --network home \
+  --count 3 \
+  --data '{"scenario":"device-a-to-device-b"}'
+```
+
+Keep the printed `runId`, `originDeviceId`, and `expected`. After periodic sync
+or an explicit `thalweg peer sync`, run this on device B:
+
+```bash
+thalweg lab verify \
+  --network home \
+  --run-id RUN_ID \
+  --origin ORIGIN_DEVICE_ID \
+  --expected 3
+```
+
+`complete: true` and an exit status of zero mean every expected sequence exists
+on that replica. Missing sequences are printed and return a non-zero status.
+Use the same `--run-id` when retrying publication so event-ID idempotency is
+tested rather than creating a second run.
+
+For interactive testing, `thalweg console web --network home --lab` exposes the
+same bounded Event Workbench. The ordinary Console remains read-only.
+
 ## Automated Verification
 
 Run from the monorepo root:

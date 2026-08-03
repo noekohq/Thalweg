@@ -15,6 +15,7 @@ import {
   Grid,
   Group,
   MantineProvider,
+  NumberInput,
   Paper,
   ScrollArea,
   Select,
@@ -22,6 +23,8 @@ import {
   Stack,
   Table,
   Text,
+  Textarea,
+  TextInput,
   ThemeIcon,
   Title,
 } from "@mantine/core";
@@ -84,6 +87,27 @@ type Snapshot = {
   streams: StreamSummary[];
   warnings: string[];
   features: Feature[];
+};
+
+type LabManifest = {
+  version: number;
+  runId: string;
+  network: string;
+  stream: string;
+  originDeviceId: string;
+  expected: number;
+  publishedAt: string;
+  events: Array<{ id: string; sequence: number }>;
+};
+
+type LabVerification = {
+  runId: string;
+  originDeviceId?: string;
+  expected: number;
+  seen: number;
+  sequences: number[];
+  missing: number[];
+  complete: boolean;
 };
 
 const theme = createTheme({
@@ -161,6 +185,20 @@ function App() {
   const [selectedNetwork, setSelectedNetwork] = useState(initialNetwork);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const labEnabled = useMemo(
+    () => new URL(window.location.href).searchParams.get("lab") === "1",
+    [],
+  );
+  const [labStream, setLabStream] = useState("system:mesh_test");
+  const [labCount, setLabCount] = useState(3);
+  const [labMessage, setLabMessage] = useState("");
+  const [labData, setLabData] = useState("{}");
+  const [labRunId, setLabRunId] = useState("");
+  const [labOrigin, setLabOrigin] = useState("");
+  const [labExpected, setLabExpected] = useState(3);
+  const [labBusy, setLabBusy] = useState(false);
+  const [labResult, setLabResult] = useState<LabManifest | LabVerification | null>(null);
+  const [labError, setLabError] = useState("");
 
   const refresh = useCallback(async (network = selectedNetwork, indicate = false) => {
     if (indicate) setLoading(true);
@@ -219,6 +257,62 @@ function App() {
         : "—",
     },
   ];
+
+  const postLab = useCallback(async <T,>(path: string, body: unknown): Promise<T> => {
+    const endpoint = new URL(path, window.location.href);
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error((await response.text()).trim() || `Lab API returned ${response.status}`);
+    return response.json() as Promise<T>;
+  }, []);
+
+  const publishLabRun = useCallback(async () => {
+    if (!selectedNetwork) return;
+    setLabBusy(true);
+    setLabError("");
+    try {
+      const data = JSON.parse(labData) as unknown;
+      const manifest = await postLab<LabManifest>("api/lab/publish", {
+        network: selectedNetwork,
+        stream: labStream,
+        count: labCount,
+        message: labMessage,
+        data,
+      });
+      setLabResult(manifest);
+      setLabRunId(manifest.runId);
+      setLabOrigin(manifest.originDeviceId);
+      setLabExpected(manifest.expected);
+      await refresh(selectedNetwork);
+    } catch (reason) {
+      setLabError(reason instanceof Error ? reason.message : "Unable to publish test events");
+    } finally {
+      setLabBusy(false);
+    }
+  }, [labCount, labData, labMessage, labStream, postLab, refresh, selectedNetwork]);
+
+  const verifyLabRun = useCallback(async () => {
+    if (!selectedNetwork) return;
+    setLabBusy(true);
+    setLabError("");
+    try {
+      const result = await postLab<LabVerification>("api/lab/verify", {
+        network: selectedNetwork,
+        stream: labStream,
+        runId: labRunId,
+        originDeviceId: labOrigin,
+        expected: labExpected,
+      });
+      setLabResult(result);
+    } catch (reason) {
+      setLabError(reason instanceof Error ? reason.message : "Unable to verify test events");
+    } finally {
+      setLabBusy(false);
+    }
+  }, [labExpected, labOrigin, labRunId, labStream, postLab, selectedNetwork]);
 
   return (
     <Box className="app-shell">
@@ -285,6 +379,42 @@ function App() {
             <Alert color="red" title="Console unavailable" variant="light">
               {error || snapshot?.error}
             </Alert>
+          )}
+
+          {labEnabled && (
+            <Card withBorder padding="lg">
+              <SectionTitle title="Event Workbench" detail="Explicit lab mode · writes test events" />
+              <Alert color="frost" variant="light" mb="md">
+                Test events use deterministic IDs, so retrying the same run ID is idempotent. They replicate like ordinary events.
+              </Alert>
+              <SimpleGrid cols={{ base: 1, md: 2 }}>
+                <Stack gap="sm">
+                  <TextInput label="Stream" value={labStream} onChange={(event) => setLabStream(event.currentTarget.value)} />
+                  <NumberInput label="Event count" min={1} max={100} value={labCount} onChange={(value) => setLabCount(Number(value) || 1)} />
+                  <TextInput label="Message" placeholder="Optional note for this run" value={labMessage} onChange={(event) => setLabMessage(event.currentTarget.value)} />
+                  <Textarea label="Generic JSON data" autosize minRows={4} ff="monospace" value={labData} onChange={(event) => setLabData(event.currentTarget.value)} />
+                  <Button disabled={!selectedNetwork} loading={labBusy} onClick={() => void publishLabRun()}>
+                    Publish deterministic run
+                  </Button>
+                </Stack>
+                <Stack gap="sm">
+                  <TextInput label="Run ID" value={labRunId} onChange={(event) => setLabRunId(event.currentTarget.value)} />
+                  <TextInput label="Origin device ID" description="Copy from the publishing manifest; leave blank to match any origin" value={labOrigin} onChange={(event) => setLabOrigin(event.currentTarget.value)} />
+                  <NumberInput label="Expected sequences" min={1} max={100} value={labExpected} onChange={(value) => setLabExpected(Number(value) || 1)} />
+                  <Button variant="default" disabled={!selectedNetwork || !labRunId} loading={labBusy} onClick={() => void verifyLabRun()}>
+                    Verify local replica
+                  </Button>
+                  {labError && <Alert color="red" variant="light">{labError}</Alert>}
+                  {labResult && (
+                    <Paper withBorder p="md" bg="dark.7">
+                      <Text size="xs" ff="monospace" className="payload">
+                        {JSON.stringify(labResult, null, 2)}
+                      </Text>
+                    </Paper>
+                  )}
+                </Stack>
+              </SimpleGrid>
+            </Card>
           )}
 
           <Card withBorder padding="lg">

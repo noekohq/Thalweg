@@ -69,6 +69,10 @@ type nodeStatus struct {
 	DeviceID string `json:"deviceId"`
 }
 
+type networkMembership struct {
+	Name string `json:"name"`
+}
+
 type eventEnvelope struct {
 	Payload json.RawMessage `json:"payload"`
 }
@@ -123,6 +127,20 @@ func Publish(ctx context.Context, caller Caller, now time.Time, request PublishR
 	}
 	if status.DeviceID == "" {
 		return RunManifest{}, fmt.Errorf("daemon returned an empty device identity")
+	}
+	var memberships []networkMembership
+	if err := caller.Call(ctx, "network_list", map[string]any{}, &memberships); err != nil {
+		return RunManifest{}, fmt.Errorf("list mounted networks: %w", err)
+	}
+	mounted := false
+	for _, membership := range memberships {
+		if membership.Name == request.Network {
+			mounted = true
+			break
+		}
+	}
+	if !mounted {
+		return RunManifest{}, fmt.Errorf("network %q is not mounted", request.Network)
 	}
 	now = now.UTC()
 	manifest := RunManifest{
