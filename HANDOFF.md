@@ -1,6 +1,6 @@
 # Thalweg SDK Handoff
 
-Last reviewed: 2026-07-30
+Last reviewed: 2026-08-02
 
 ## Current State
 
@@ -43,14 +43,16 @@ chronological order.
 
 ## Known Technical Debt
 
-- Runtime coverage includes protocol framing, incompatibility, and membership
-  API mapping; there are no builder or compile-time generic tests.
+- Runtime coverage includes protocol framing, incompatibility, malformed data,
+  timeouts, membership mapping, and core builder safety. Compile-time generic
+  tests and full continuous-delivery coverage remain missing.
 - `tail()` is a type-preserving no-op at runtime.
 - `interval()` runs only once.
 - `retrospective` is unused.
-- Buffered execution errors are not returned to the caller.
-- No request timeout, reconnect, or subscription restoration exists.
-- Subscription callback rejections are not observed.
+- Siphon handles expose readiness and processor failure, but there is no durable
+  execution record or retry behavior.
+- Requests time out, but abort-signal cancellation, reconnect, and subscription
+  restoration are not implemented.
 - Runtime basin membership must duplicate the compile-time basin definition.
 - `query()` returns a broad payload union.
 - Package exports and supported runtime policy are not explicit.

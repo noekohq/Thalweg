@@ -71,6 +71,135 @@ describe("DaemonClient protocol framing", () => {
       "Unsupported Thalweg protocol version 999",
     );
   });
+
+  test("rejects malformed daemon JSON without crashing", async () => {
+    const path = await listen((_message, socket) => {
+      socket.write("not-json\n");
+    });
+    const client = trackClient(new DaemonClient(path));
+
+    await expect(client.request("network_status", {})).rejects.toThrow(
+      "malformed JSON",
+    );
+  });
+
+  test("times out unanswered requests", async () => {
+    const path = await listen(() => undefined);
+    const client = trackClient(new DaemonClient(path, { requestTimeoutMs: 20 }));
+
+    await expect(client.request("network_status", {})).rejects.toThrow(
+      "request network_status timed out",
+    );
+  });
+});
+
+describe("Siphon runtime safety", () => {
+  type Streams = { note: { content: string }; summary: { content: string } };
+  type Basins = { timeline: ["note"] };
+
+  test("rejects missing runtime basin definitions", () => {
+    const thalweg = new Thalweg<Streams, Basins>({
+      socket: "/tmp/not-used.sock",
+      network: "home",
+    });
+    expect(() => thalweg.basin("timeline")).toThrow(
+      "has no runtime stream definition",
+    );
+  });
+
+  test("requires include before omit on an all-stream siphon", () => {
+    const thalweg = new Thalweg<Streams, {}>({
+      socket: "/tmp/not-used.sock",
+      network: "home",
+    });
+    expect(() => thalweg.siphon().omit(["note"])).toThrow(
+      "call include() first",
+    );
+  });
+
+  test("surfaces buffered callback failures through the handle", async () => {
+    const path = await listen((message, socket) => {
+      expect(message.action).toBe("event_query");
+      socket.write(
+        `${JSON.stringify({
+          id: message.id,
+          protocolVersion: THALWEG_PROTOCOL_VERSION,
+          success: true,
+          data: [],
+        })}\n`,
+      );
+    });
+    const thalweg = new Thalweg<Streams, {}>({ socket: path, network: "home" });
+    try {
+      const handle = thalweg
+        .siphon()
+        .include(["note"])
+        .interval("1m")
+        .run(() => {
+          throw new Error("processor failed");
+        });
+      await expect(handle.result).rejects.toThrow("processor failed");
+    } finally {
+      await thalweg.close();
+    }
+  });
+
+  test("does not lose an event delivered with the registration response", async () => {
+    const path = await listen((message, socket) => {
+      const action = String(message.action);
+      if (action === "siphon_register") {
+        socket.write(
+          `${JSON.stringify({
+            id: message.id,
+            protocolVersion: THALWEG_PROTOCOL_VERSION,
+            success: true,
+            data: { subscriptionId: "sub-fast" },
+          })}\n${JSON.stringify({
+            type: "event",
+            protocolVersion: THALWEG_PROTOCOL_VERSION,
+            subscriptionId: "sub-fast",
+            event: {
+              id: "event-fast",
+              network: "home",
+              stream: "note",
+              occurredAt: "2026-01-01T00:00:00Z",
+              insertedAt: "2026-01-01T00:00:00Z",
+              propagatedAt: "2026-01-01T00:00:00Z",
+              counter: 0,
+              deviceId: "device",
+              payload: { content: "hello" },
+            },
+          })}\n`,
+        );
+      } else if (action === "siphon_unregister") {
+        socket.write(
+          `${JSON.stringify({
+            id: message.id,
+            protocolVersion: THALWEG_PROTOCOL_VERSION,
+            success: true,
+            data: { removed: true },
+          })}\n`,
+        );
+      }
+    });
+    const thalweg = new Thalweg<Streams, {}>({ socket: path, network: "home" });
+    let receive!: (id: string) => void;
+    const received = new Promise<string>((resolve) => {
+      receive = resolve;
+    });
+    try {
+      const handle = thalweg
+        .siphon()
+        .include(["note"])
+        .run((_context, event) => receive(event.id));
+      await handle.ready;
+      await expect(received).resolves.toBe("event-fast");
+      await handle.stop();
+      await expect(handle.result).resolves.toBeUndefined();
+    } finally {
+      await thalweg.close();
+    }
+  });
 });
 
 describe("Thalweg network membership API", () => {

@@ -75,12 +75,13 @@ go run . spawn
 - `tail()` does not currently alter runtime behavior.
 - `interval()` performs one lookback query; it is not recurring.
 - `SiphonIntervalOptions.retrospective` is not used.
-- Buffered failures are launched from `void` and are not exposed on the handle.
+- Siphon handles expose readiness and callback failure, but execution is not
+  durable or retried.
 - Basin definitions must be supplied at runtime as the constructor's second
   argument; generic types alone do not exist at runtime.
-- Automated coverage includes request framing, protocol mismatch behavior, and
-  membership API mapping; the public builder API remains untested.
-- Reconnection, request timeouts, backpressure, and callback error handling are
+- Automated coverage includes request framing, protocol mismatch behavior,
+  malformed data, timeouts, membership API mapping, and core builder safety.
+- Reconnection, cancellation, durable backpressure, and resubscription remain
   incomplete.
 
 ## Change Discipline

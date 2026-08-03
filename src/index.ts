@@ -3,6 +3,7 @@ import { DaemonClient, DaemonEvent } from "./client";
 export interface ThalwegConfiguration {
   socket: string;
   network: string;
+  requestTimeoutMs?: number;
 }
 
 export interface NetworkStatus {
@@ -100,6 +101,7 @@ export interface QueryOptions<Payloads extends Record<string, unknown>> {
   from?: string;
   to?: string;
   limit?: number;
+  order?: "asc" | "desc";
 }
 
 export type ThalwegEvent<P extends unknown> = Omit<
@@ -136,6 +138,8 @@ export type RunArgs<
   : ThalwegEvent<Payloads[ActiveStreams]>;
 
 export interface SiphonHandle {
+  ready: Promise<void>;
+  result: Promise<void>;
   stop: () => Promise<void>;
 }
 
@@ -224,6 +228,11 @@ export class SiphonBuilder<
   }
 
   omit<O extends A>(streams: O[]): Siphon<P, Exclude<A, O>, M> {
+    if (this.config.streams.length === 0) {
+      throw new Error(
+        "Cannot omit streams from an all-stream siphon at runtime; call include() first.",
+      );
+    }
     const omitted = new Set(streams.map(String));
     this.config.streams = this.config.streams.filter(
       (stream) => !omitted.has(stream),
@@ -238,28 +247,45 @@ export class SiphonBuilder<
     ) => void | Promise<void>,
   ): SiphonHandle {
     if (this.config.mode === "buffered") {
-      void this.runBuffered(callback);
-      return { stop: async () => undefined };
+      const result = this.runBuffered(callback);
+      return { ready: result, result, stop: async () => undefined };
     }
 
     let subscriptionId: string | null = null;
+    let stopped = false;
+    let resolveResult!: () => void;
+    let rejectResult!: (error: unknown) => void;
+    const result = new Promise<void>((resolve, reject) => {
+      resolveResult = resolve;
+      rejectResult = reject;
+    });
     const ready = this.client
       .subscribe(this.network, this.config.streams, async (event) => {
-        await callback(
-          this.context,
-          event as RunArgs<M, P, A>,
-        );
+        try {
+          await callback(this.context, event as RunArgs<M, P, A>);
+        } catch (error) {
+          rejectResult(error);
+        }
       })
       .then((id) => {
         subscriptionId = id;
+      })
+      .catch((error) => {
+        rejectResult(error);
+        throw error;
       });
 
     return {
+      ready,
+      result,
       stop: async () => {
+        if (stopped) return;
+        stopped = true;
         await ready;
         if (subscriptionId) {
           await this.client.unsubscribe(subscriptionId);
         }
+        resolveResult();
       },
     };
   }
@@ -307,7 +333,9 @@ export class Thalweg<
     basins: Partial<Record<keyof Basins, (keyof Payloads)[]>> = {},
   ) {
     this.config = config;
-    this.client = new DaemonClient(config.socket);
+    this.client = new DaemonClient(config.socket, {
+      requestTimeoutMs: config.requestTimeoutMs,
+    });
     this.basins = basins;
     this.context = {
       ingest: async (stream, payload, opts = {}) => {
@@ -344,6 +372,7 @@ export class Thalweg<
         from: opts.from,
         to: opts.to,
         limit: opts.limit,
+        order: opts.order,
       },
     );
   }
@@ -442,7 +471,13 @@ export class Thalweg<
   }
 
   basin<K extends keyof Basins>(name: K): Basin<Payloads, Basins, K> {
-    const streams = (this.basins[name] ?? []) as string[];
+    const configured = this.basins[name];
+    if (!configured || configured.length === 0) {
+      throw new Error(
+        `Basin ${String(name)} has no runtime stream definition; refusing to broaden it to all streams.`,
+      );
+    }
+    const streams = configured as string[];
     return {
       siphon: () =>
         new SiphonBuilder<Payloads, Basins[K][number], "continuous">(

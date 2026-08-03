@@ -34,7 +34,8 @@ The SDK:
 3. Writes one JSON object followed by `\n`.
 4. Resolves or rejects when a response with that ID arrives.
 
-The current implementation has no request timeout or cancellation.
+Requests time out after 30 seconds by default. The current implementation has
+no abort-signal cancellation.
 
 For `event_ingest`, the SDK forwards the optional producer `eventId`. The daemon
 treats it as network-unique: equivalent retries return the original envelope,

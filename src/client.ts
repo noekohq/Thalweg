@@ -39,6 +39,7 @@ interface StreamMessage {
 type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (reason?: unknown) => void;
+  timer: ReturnType<typeof setTimeout>;
 };
 
 type EventHandler = (event: DaemonEvent) => void | Promise<void>;
@@ -50,10 +51,16 @@ export class DaemonClient {
   private nextId = 0;
   private pending = new Map<string, PendingRequest>();
   private subscriptions = new Map<string, EventHandler>();
+  private queuedSubscriptionEvents = new Map<string, DaemonEvent[]>();
   private connecting: Promise<void> | null = null;
+  private requestTimeoutMs: number;
 
-  constructor(socketPath: string) {
+  constructor(socketPath: string, options: { requestTimeoutMs?: number } = {}) {
     this.socketPath = socketPath;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
+    if (!Number.isFinite(this.requestTimeoutMs) || this.requestTimeoutMs <= 0) {
+      throw new Error("requestTimeoutMs must be greater than zero.");
+    }
   }
 
   async request<T>(action: string, payload: unknown): Promise<T> {
@@ -67,11 +74,28 @@ export class DaemonClient {
     };
 
     return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (!this.pending.delete(id)) return;
+        reject(new Error(`Thalweg daemon request ${action} timed out.`));
+      }, this.requestTimeoutMs);
       this.pending.set(id, {
-        resolve: (value) => resolve(value as T),
-        reject,
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolve(value as T);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+        timer,
       });
-      this.write(message);
+      try {
+        this.write(message);
+      } catch (error) {
+        this.pending.delete(id);
+        clearTimeout(timer);
+        reject(error);
+      }
     });
   }
 
@@ -85,11 +109,17 @@ export class DaemonClient {
       { network, streams },
     );
     this.subscriptions.set(result.subscriptionId, handler);
+    const queued = this.queuedSubscriptionEvents.get(result.subscriptionId) ?? [];
+    this.queuedSubscriptionEvents.delete(result.subscriptionId);
+    for (const event of queued) {
+      void handler(event);
+    }
     return result.subscriptionId;
   }
 
   async unsubscribe(subscriptionId: string): Promise<void> {
     this.subscriptions.delete(subscriptionId);
+    this.queuedSubscriptionEvents.delete(subscriptionId);
     await this.request("siphon_unregister", { subscriptionId });
   }
 
@@ -120,6 +150,7 @@ export class DaemonClient {
         this.socket = null;
         this.connecting = null;
         for (const pending of this.pending.values()) {
+          clearTimeout(pending.timer);
           pending.reject(new Error("Thalweg daemon connection closed."));
         }
         this.pending.clear();
@@ -142,7 +173,13 @@ export class DaemonClient {
 
     for (const part of parts) {
       if (!part.trim()) continue;
-      const message = JSON.parse(part) as ResponseMessage | StreamMessage;
+      let message: ResponseMessage | StreamMessage;
+      try {
+        message = JSON.parse(part) as ResponseMessage | StreamMessage;
+      } catch {
+        this.failConnection(new Error("Thalweg daemon sent malformed JSON."));
+        return;
+      }
       if (message.protocolVersion !== THALWEG_PROTOCOL_VERSION) {
         this.failProtocol(message);
         return;
@@ -150,7 +187,13 @@ export class DaemonClient {
 
       if ("type" in message && message.type === "event") {
         const handler = this.subscriptions.get(message.subscriptionId);
-        void handler?.(message.event);
+        if (handler) {
+          void handler(message.event);
+        } else {
+          const queued = this.queuedSubscriptionEvents.get(message.subscriptionId) ?? [];
+          if (queued.length < 128) queued.push(message.event);
+          this.queuedSubscriptionEvents.set(message.subscriptionId, queued);
+        }
         continue;
       }
 
@@ -173,10 +216,15 @@ export class DaemonClient {
     const error = new Error(
       `Unsupported Thalweg protocol version ${received}; SDK supports ${THALWEG_PROTOCOL_VERSION}.`,
     );
+    this.failConnection(error);
+  }
+
+  private failConnection(error: Error): void {
     for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
       pending.reject(error);
     }
     this.pending.clear();
-    this.socket?.destroy();
+    this.socket?.destroy(error);
   }
 }

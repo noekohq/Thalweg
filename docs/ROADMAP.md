@@ -1,6 +1,6 @@
 # Thalweg TypeScript SDK Roadmap
 
-Last reviewed: 2026-07-30
+Last reviewed: 2026-08-02
 
 ## SDK Role
 
@@ -67,24 +67,25 @@ Implemented:
 - Continuous future-event callbacks.
 - One-shot buffered lookback callbacks through `interval()`.
 - Derived ingestion through callback context.
-- Continuous handles can unregister their subscription.
+- Continuous handles expose registration readiness, processor completion or
+  failure, and can unregister their subscription.
+- Requests have a configurable timeout and malformed daemon JSON fails pending
+  work without escaping the socket parser.
+- Runtime basin definitions are required and all-stream `omit()` fails safely
+  instead of silently broadening scope.
+- Runtime coverage includes transport failures and core siphon safety behavior.
 
 Prototype limitations:
 
-- There are no fluent runtime tests or compile-time generic tests.
-- `run()` does not expose readiness or processing failures.
-- Buffered execution is launched fire-and-forget.
+- Compile-time generic transitions and continuous delivery still need broader
+  coverage.
 - `tail()` records configuration but has no runtime effect.
 - `interval()` executes once and is not scheduled.
 - `retrospective` is unused.
-- Starting from the all-stream sentinel makes runtime `omit()` ineffective.
-- Missing runtime basin membership becomes an empty list, which the daemon
-  interprets as all streams.
 - Buffered all-stream results do not guarantee empty arrays for absent streams.
 - Subscription registration has no replay boundary and can miss history.
-- There are no request timeouts, cancellation, reconnect, or resubscription.
-- Subscription callbacks have no backpressure or surfaced error channel.
-- Invalid JSON from the socket can escape the parser.
+- There is no abort-signal cancellation, reconnect, or resubscription.
+- Subscription callbacks have no durable backpressure or replay semantics.
 - Query return types do not narrow to the requested streams.
 - Package exports and supported Node/Bun versions are not explicit.
 - Peer topology and synchronization progress do not have daemon read models yet.
@@ -96,14 +97,16 @@ Definition of done:
 - Add runtime tests for client framing, correlation, disconnects, parse errors,
   subscription delivery, cancellation, and cleanup.
 - Add compile-time type tests for every fluent generic transition.
-- Make `run()` startup observable through a ready promise or async start method.
-- Expose registration, query, buffered callback, and continuous callback
-  failures.
-- Add request timeouts and abort-signal cancellation.
+- [x] Make `run()` startup observable through a ready promise.
+- [x] Expose registration, buffered callback, and continuous callback failures.
+- [x] Add request timeouts.
+- Add abort-signal cancellation.
 - Define reconnect and subscription restoration behavior.
-- Parse malformed messages without crashing the process.
-- Correct all-stream `omit()` behavior.
-- Reject missing runtime basin definitions instead of broadening to all streams.
+- [x] Parse malformed messages without crashing the process.
+- [x] Reject unsafe all-stream `omit()` calls until a runtime stream catalog
+  exists.
+- [x] Reject missing runtime basin definitions instead of broadening to all
+  streams.
 - Guarantee buffered result keys for the declared active stream set.
 - Narrow `query()` results based on selected streams.
 - Publish explicit package exports and supported Node/Bun versions.

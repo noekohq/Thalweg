@@ -68,11 +68,13 @@ const events = await t.query({
   from: "2026-07-30T00:00:00.000Z",
   to: "2026-07-31T00:00:00.000Z",
   limit: 100,
+  order: "desc",
 });
 ```
 
 Omitting `streams` queries all streams in the configured network. Results are
-chronological. The current return type is a union of all payloads rather than a
+ascending by default; `order: "desc"` returns newest first and applies the limit
+after ordering. The current return type is a union of all payloads rather than a
 more precise union based on `opts.streams`.
 
 ## Continuous Siphons
@@ -85,7 +87,9 @@ const handle = t
     console.log(event.payload.content);
   });
 
+await handle.ready;
 await handle.stop();
+await handle.result;
 ```
 
 Continuous mode registers for future matching events. It does not currently
@@ -113,6 +117,7 @@ Calling `interval()` changes the callback type to a map:
 
 The current runtime performs one query from `now - interval` through `now`,
 calls the callback once, and stops. It does not schedule future intervals.
+`handle.result` resolves when it finishes or rejects with query/callback errors.
 
 Supported duration suffixes are `ms`, `s`, `m`, `h`, and `d`.
 
@@ -217,7 +222,8 @@ one authenticated on the stream.
 
 ## Lifecycle and Errors
 
-`Thalweg.close()` ends the socket. Continuous handles can unregister one
-subscription. The current client rejects pending requests if the socket closes,
-but does not reconnect, time out requests, or expose buffered callback failures
-through the `SiphonHandle`.
+`Thalweg.close()` ends the socket. Continuous handles expose `ready`, `result`,
+and `stop()`. The client rejects pending requests if the socket closes or sends
+malformed JSON, and requests time out after 30 seconds by default. Configure
+`requestTimeoutMs` on `ThalwegConfiguration` when needed. Automatic reconnect,
+abort-signal cancellation, and subscription restoration remain future work.
