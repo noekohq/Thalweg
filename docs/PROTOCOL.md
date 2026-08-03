@@ -360,6 +360,9 @@ remembered authorized peers. The daemon also runs periodic anti-entropy,
 records the last result, and applies bounded exponential backoff after
 failures. This provides near-immediate availability to remote local
 subscriptions while connected, but is not yet a permanent remote event stream.
+Successful inbound mesh authentication also remembers the initiator, making
+future event-triggered delivery bidirectional even when only one device
+initiated enrollment or the first manual sync.
 
 ### `mesh_peer_list`
 

@@ -216,6 +216,9 @@ func (d *Daemon) handleMeshStream(stream network.Stream) {
 	}); err != nil {
 		return
 	}
+	if err := d.rememberInboundMeshPeer(membership.Name, initiator, stream.Conn()); err != nil {
+		d.trace(false, "mesh.peer", "failed to remember authenticated inbound peer", "network", membership.Name, "remotePeerId", initiator.String(), "error", err)
+	}
 	_ = stream.SetDeadline(time.Now().Add(syncTimeout))
 	_ = d.serveSyncRequests(stream, reader, membership)
 }

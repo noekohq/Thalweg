@@ -263,6 +263,8 @@ Definition of done:
 - [x] Merge clocks and events deterministically after partitions.
 - [x] Trigger coalesced near-immediate synchronization after local ingestion
   while retaining periodic anti-entropy for repair.
+- [x] Remember both sides of every authenticated mesh connection so enrollment
+  and manual synchronization produce bidirectional delivery targets.
 - Resume interrupted synchronization without restarting from the beginning.
 - [x] Expose persisted peer health, retry state, and the last completed
   synchronization result.

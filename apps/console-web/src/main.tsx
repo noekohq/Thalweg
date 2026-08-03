@@ -241,7 +241,7 @@ function App() {
     return result;
   }, [snapshot]);
   const events = useMemo(
-    () => [...(snapshot?.events || [])].reverse().slice(0, 12),
+    () => (snapshot?.events || []).slice(0, 12),
     [snapshot],
   );
 

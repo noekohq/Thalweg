@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
 )
 
 func TestMeshPeerHealthTracksSuccessAndFailure(t *testing.T) {
@@ -158,6 +161,36 @@ func TestMeshSyncSignalsCoalesceByNetwork(t *testing.T) {
 	}
 	if networks := d.takeMeshWakeNetworks(); len(networks) != 1 || networks[0] != "home" {
 		t.Fatalf("coalesced networks = %v", networks)
+	}
+}
+
+func TestPeerAddressScorePrefersReachableLANListener(t *testing.T) {
+	loopback, _ := multiaddr.NewMultiaddr("/ip4/127.0.0.1/tcp/42422")
+	lan, _ := multiaddr.NewMultiaddr("/ip4/192.168.68.57/tcp/42422")
+	public, _ := multiaddr.NewMultiaddr("/ip4/203.0.113.10/tcp/42422")
+	ephemeralUDP, _ := multiaddr.NewMultiaddr("/ip4/192.168.68.57/udp/55000")
+	if peerAddressScore(lan) <= peerAddressScore(public) || peerAddressScore(public) <= peerAddressScore(loopback) {
+		t.Fatalf("address scores lan=%d public=%d loopback=%d", peerAddressScore(lan), peerAddressScore(public), peerAddressScore(loopback))
+	}
+	if peerAddressScore(ephemeralUDP) != 0 {
+		t.Fatalf("non-TCP address score = %d", peerAddressScore(ephemeralUDP))
+	}
+}
+
+func TestPreferredPeerAddressMatchesAuthenticatedConnectionIP(t *testing.T) {
+	virtual, _ := multiaddr.NewMultiaddr("/ip4/192.168.117.0/tcp/42422")
+	wifi, _ := multiaddr.NewMultiaddr("/ip4/192.168.68.57/tcp/42422")
+	ephemeral, _ := multiaddr.NewMultiaddr("/ip4/192.168.68.57/tcp/55000")
+	peerID := peer.ID("peer-test")
+	selected := selectPreferredPeerAddress(
+		[]multiaddr.Multiaddr{virtual, wifi, ephemeral},
+		2,
+		net.ParseIP("192.168.68.57"),
+		peerID,
+	)
+	want := fmt.Sprintf("/ip4/192.168.68.57/tcp/42422/p2p/%s", peerID)
+	if selected != want {
+		t.Fatalf("selected address = %q, want %q", selected, want)
 	}
 }
 

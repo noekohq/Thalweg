@@ -106,6 +106,10 @@ creates one `insights:summary` event, and all four print chronologically.
   configured address until mounted-peer discovery and multi-address selection
   exist. Bursts coalesce into inventory syncs; this is not yet a permanent
   remote event stream.
+- Authenticated inbound mesh streams now persist the initiator's best
+  advertised TCP listener. This repairs the earlier enrollment asymmetry where
+  only the joining node remembered the approving node and reverse-triggered
+  delivery had no target.
 - `thalweg daemon start` detaches, verifies socket readiness, and records
   restricted lifecycle state and logs. The CLI can inspect, stop, and restart
   it gracefully. Source installs record their checkout and commit, and
@@ -127,6 +131,9 @@ creates one `insights:summary` event, and all four print chronologically.
   punching and same-port macOS acceptance coverage.
 - Console event inspection requests the newest events in a bounded 24-hour
   diagnostic window, but does not yet support cursor-based pagination.
+- The browser's "Latest 12" table takes the first 12 entries from that
+  newest-first response. An earlier reverse-before-slice bug displayed the
+  oldest portion once more than 12 events existed.
 - Persisted peer health and last synchronization status are now exposed in both
   console frontends. Topology edges, active progress, durable lag, storage
   summaries, and processing health remain unavailable read contracts.

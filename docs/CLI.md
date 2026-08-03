@@ -377,6 +377,12 @@ attempts use bounded exponential backoff and expose their next retry through
 rediscovery, or durable page cursor, so `peer sync` remains useful when testing
 or when forced convergence matters.
 
+Every successful authenticated mesh stream now remembers both sides. After
+upgrading from a build that only remembered the initiator, run one sync from
+the device that already lists the peer; the responder will learn the reverse
+target and both devices should then show each other in `thalweg peer list
+--network NAME`.
+
 ## Console
 
 Launch the read-only Bubble Tea console:

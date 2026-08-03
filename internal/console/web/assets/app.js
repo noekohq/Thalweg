@@ -17364,7 +17364,7 @@ function df() {
 			address: r
 		});
 		return e;
-	}, [t]), te = (0, C.useMemo)(() => [...t?.events || []].reverse().slice(0, 12), [t]), ne = [
+	}, [t]), te = (0, C.useMemo)(() => (t?.events || []).slice(0, 12), [t]), ne = [
 		{
 			label: "Device",
 			value: of(t?.status.deviceId),

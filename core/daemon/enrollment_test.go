@@ -51,6 +51,30 @@ func TestEnrollmentRequiresApprovalThenJoinsAndSyncs(t *testing.T) {
 	if !exists || joined.info() != membership {
 		t.Fatalf("second daemon membership = %#v, exists=%t", joined.info(), exists)
 	}
+	firstPeers, err := first.listMeshPeers("home")
+	if err != nil || len(firstPeers) != 1 || firstPeers[0].PeerID != second.p2p.ID().String() {
+		t.Fatalf("approver peers = %#v, %v", firstPeers, err)
+	}
+	secondPeers, err := second.listMeshPeers("home")
+	if err != nil || len(secondPeers) != 1 || secondPeers[0].PeerID != first.p2p.ID().String() {
+		t.Fatalf("joining peers = %#v, %v", secondPeers, err)
+	}
+
+	first.meshSyncDebounce = 10 * time.Millisecond
+	first.backgroundWG.Add(1)
+	go first.meshEventSyncLoop()
+	if _, err := first.ingest("home", "system:test", "", "approver-event", json.RawMessage(`{"direction":"approver-to-joiner"}`)); err != nil {
+		t.Fatalf("ingest approver event: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		events, queryErr := second.query("home", []string{"system:test"}, "", "", 0)
+		if queryErr == nil && len(events) == 1 && events[0].ID == "approver-event" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("approver event did not synchronize to joining peer")
 }
 
 func TestEnrollmentDenialDoesNotMountMembership(t *testing.T) {

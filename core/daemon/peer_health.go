@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"sort"
 	"time"
 
@@ -57,6 +58,100 @@ func (d *Daemon) persistMeshPeer(networkName string, peerID peer.ID, address str
 		record.PeerID = peerID.String()
 		record.Address = address
 	})
+}
+
+func (d *Daemon) rememberInboundMeshPeer(networkName string, peerID peer.ID, connection libp2pnetwork.Conn) error {
+	address := d.preferredPeerAddress(peerID, connection)
+	if address == "" {
+		return fmt.Errorf("authenticated peer did not advertise a usable address")
+	}
+	return d.persistMeshPeer(networkName, peerID, address)
+}
+
+func (d *Daemon) preferredPeerAddress(peerID peer.ID, connection libp2pnetwork.Conn) string {
+	candidates := append([]multiaddr.Multiaddr(nil), d.p2p.Peerstore().Addrs(peerID)...)
+	advertisedCount := len(candidates)
+	var connectedIP net.IP
+	if connection != nil && connection.RemoteMultiaddr() != nil {
+		connectedIP = multiaddrIP(connection.RemoteMultiaddr())
+		candidates = append(candidates, connection.RemoteMultiaddr())
+	}
+	return selectPreferredPeerAddress(candidates, advertisedCount, connectedIP, peerID)
+}
+
+func selectPreferredPeerAddress(candidates []multiaddr.Multiaddr, advertisedCount int, connectedIP net.IP, peerID peer.ID) string {
+	bestScore := -1
+	var best multiaddr.Multiaddr
+	seen := make(map[string]struct{})
+	for index, candidate := range candidates {
+		if candidate == nil {
+			continue
+		}
+		value := candidate.String()
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		score := peerAddressScore(candidate)
+		if index < advertisedCount && connectedIP != nil {
+			if candidateIP := multiaddrIP(candidate); candidateIP != nil && candidateIP.Equal(connectedIP) {
+				score += 100
+			}
+		}
+		if score > bestScore {
+			bestScore = score
+			best = candidate
+		}
+	}
+	if best == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s/p2p/%s", best, peerID)
+}
+
+func multiaddrIP(address multiaddr.Multiaddr) net.IP {
+	for _, protocolCode := range []int{multiaddr.P_IP4, multiaddr.P_IP6} {
+		value, err := address.ValueForProtocol(protocolCode)
+		if err == nil {
+			return net.ParseIP(value)
+		}
+	}
+	return nil
+}
+
+func peerAddressScore(address multiaddr.Multiaddr) int {
+	if _, err := address.ValueForProtocol(multiaddr.P_TCP); err != nil {
+		return 0
+	}
+	for _, protocolCode := range []int{multiaddr.P_IP4, multiaddr.P_IP6} {
+		value, err := address.ValueForProtocol(protocolCode)
+		if err != nil {
+			continue
+		}
+		ip := net.ParseIP(value)
+		switch {
+		case ip == nil:
+			return 10
+		case ip.IsLoopback():
+			return 20
+		case ip.IsPrivate() || ip.IsLinkLocalUnicast():
+			return 50
+		case ip.IsGlobalUnicast():
+			return 40
+		default:
+			return 10
+		}
+	}
+	if _, err := address.ValueForProtocol(multiaddr.P_DNS); err == nil {
+		return 30
+	}
+	if _, err := address.ValueForProtocol(multiaddr.P_DNS4); err == nil {
+		return 30
+	}
+	if _, err := address.ValueForProtocol(multiaddr.P_DNS6); err == nil {
+		return 30
+	}
+	return 10
 }
 
 func (d *Daemon) updateMeshPeer(

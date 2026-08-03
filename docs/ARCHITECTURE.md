@@ -108,6 +108,9 @@ replicated ingestion does not signal again, avoiding mesh echo loops. A
 periodic anti-entropy loop repairs missed signals, offline peers, and transient
 failures with bounded exponential backoff. There is no long-lived remote event
 stream, mounted-peer address discovery, or durable synchronization cursor.
+Authenticated inbound mesh streams persist their initiator using its best
+advertised TCP listener, preventing one-sided enrollment topology from making
+reverse event-triggered delivery impossible.
 
 ## Target Topology
 

@@ -82,6 +82,13 @@ operator inspection. A plain physical libp2p connection is never treated as
 network authorization, and an unauthenticated address is never enrolled in the
 retry loop.
 
+Peer remembrance is symmetric after authentication. The initiator persists its
+selected target address, and the responder persists the best TCP listener
+advertised by the authenticated initiator, preferring LAN, public, DNS, and
+loopback reachability in that order. This occurs at the mesh boundary, so
+enrollment, manual dial, manual sync, and anti-entropy all repair one-sided peer
+records.
+
 ## Inventory and Event Synchronization
 
 Synchronization continues on the authenticated stream and has message version
