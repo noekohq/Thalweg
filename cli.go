@@ -731,6 +731,7 @@ func runEvent(args []string, stdout, stderr io.Writer) error {
 		from := flags.String("from", "", "inclusive RFC3339 lower bound")
 		to := flags.String("to", "", "inclusive RFC3339 upper bound")
 		limit := flags.Int("limit", 0, "maximum number of events; zero is unlimited")
+		order := flags.String("order", "asc", "chronological order: asc or desc")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -746,6 +747,7 @@ func runEvent(args []string, stdout, stderr io.Writer) error {
 			"from":    *from,
 			"to":      *to,
 			"limit":   *limit,
+			"order":   *order,
 		}, stdout)
 	case "conflicts":
 		return runEventConflicts(args[1:], stdout, stderr)

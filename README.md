@@ -1,8 +1,9 @@
 # Thalweg
 
-Thalweg is a local-first chronological event mesh. The current MVP focuses on
-one local daemon that stores immutable typed events, serves range queries, and
-pushes live tail events to SDK siphons over a Unix socket.
+Thalweg is a local-first chronological event mesh. The current MVP stores
+immutable typed events locally, serves range queries and live subscriptions,
+and synchronizes permitted history across explicitly connected, authenticated
+devices.
 
 ## MVP Surface
 

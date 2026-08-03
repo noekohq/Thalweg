@@ -22,7 +22,6 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	libp2ptcp "github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
@@ -30,6 +29,11 @@ import (
 )
 
 const canonicalTimestampLayout = "2006-01-02T15:04:05.000000000Z"
+
+const (
+	localMaxRequestBytes  = 1024 * 1024
+	subscriptionQueueSize = 128
+)
 
 type Message struct {
 	ID              string          `json:"id,omitempty"`
@@ -125,6 +129,7 @@ type subscription struct {
 	network string
 	streams map[string]bool
 	client  *clientConn
+	queue   chan StreamMessage
 }
 
 type Config struct {
@@ -211,7 +216,6 @@ func NewWithConfig(config Config) (*Daemon, error) {
 		})),
 	}
 
-	d.p2p.SetStreamHandler("/thalweg/1.0.0", d.handleP2PStream)
 	d.p2p.SetStreamHandler(meshProtocolID, d.handleMeshStream)
 	d.p2p.SetStreamHandler(enrollmentProtocolID, d.handleEnrollmentStream)
 	d.registerRoutes()
@@ -376,6 +380,7 @@ func (d *Daemon) Handle(conn net.Conn) {
 	}()
 
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 64*1024), localMaxRequestBytes)
 	for scanner.Scan() {
 		var msg Message
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
@@ -434,6 +439,13 @@ func (d *Daemon) Handle(conn net.Conn) {
 			}()
 			return
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		_ = client.Encode(Response{
+			ProtocolVersion: currentLocalProtocolVersion,
+			Success:         false,
+			Error:           fmt.Sprintf("read local request (maximum %d bytes): %v", localMaxRequestBytes, err),
+		})
 	}
 }
 
@@ -540,11 +552,12 @@ func (d *Daemon) registerRoutes() {
 			From    string   `json:"from"`
 			To      string   `json:"to"`
 			Limit   int      `json:"limit"`
+			Order   string   `json:"order"`
 		}
 		if err := json.Unmarshal(payload, &args); err != nil {
 			return nil, err
 		}
-		return d.query(args.Network, args.Streams, args.From, args.To, args.Limit)
+		return d.queryOrdered(args.Network, args.Streams, args.From, args.To, args.Limit, args.Order)
 	})
 
 	d.Register("event_conflict_list", func(_ *clientConn, payload json.RawMessage) (any, error) {
@@ -585,9 +598,18 @@ func (d *Daemon) registerRoutes() {
 		for _, stream := range args.Streams {
 			streams[stream] = true
 		}
+		sub := &subscription{
+			id:      id,
+			network: args.Network,
+			streams: streams,
+			client:  client,
+			queue:   make(chan StreamMessage, subscriptionQueueSize),
+		}
 		d.subMu.Lock()
-		d.subscriptions[id] = &subscription{id: id, network: args.Network, streams: streams, client: client}
+		d.subscriptions[id] = sub
 		d.subMu.Unlock()
+		d.backgroundWG.Add(1)
+		go d.deliverSubscription(sub)
 		return map[string]string{"subscriptionId": id}, nil
 	})
 
@@ -598,9 +620,7 @@ func (d *Daemon) registerRoutes() {
 		if err := json.Unmarshal(payload, &args); err != nil {
 			return nil, err
 		}
-		d.subMu.Lock()
-		delete(d.subscriptions, args.SubscriptionID)
-		d.subMu.Unlock()
+		d.removeSubscription(args.SubscriptionID, nil)
 		return map[string]bool{"removed": true}, nil
 	})
 
@@ -1119,8 +1139,28 @@ func normalizePayload(payload json.RawMessage) (json.RawMessage, error) {
 }
 
 func (d *Daemon) query(networkName string, streams []string, from string, to string, limit int) ([]ThalwegEvent, error) {
+	return d.queryOrdered(networkName, streams, from, to, limit, "asc")
+}
+
+func (d *Daemon) queryOrdered(
+	networkName string,
+	streams []string,
+	from string,
+	to string,
+	limit int,
+	order string,
+) ([]ThalwegEvent, error) {
 	if networkName == "" {
 		return nil, fmt.Errorf("network is required")
+	}
+	if order == "" {
+		order = "asc"
+	}
+	if order != "asc" && order != "desc" {
+		return nil, fmt.Errorf("order must be \"asc\" or \"desc\"")
+	}
+	if limit < 0 {
+		return nil, fmt.Errorf("limit must be zero or greater")
 	}
 	if from != "" {
 		normalized, err := normalizeTimestamp("from", from)
@@ -1180,6 +1220,9 @@ func (d *Daemon) query(networkName string, streams []string, from string, to str
 	}
 
 	sort.Slice(events, func(i, j int) bool {
+		if order == "desc" {
+			return chronologicalKey(events[i]) > chronologicalKey(events[j])
+		}
 		return chronologicalKey(events[i]) < chronologicalKey(events[j])
 	})
 	if limit > 0 && len(events) > limit {
@@ -1281,8 +1324,13 @@ func escapeKeyPart(value string) string {
 }
 
 func (d *Daemon) broadcast(event ThalwegEvent) {
+	message := StreamMessage{
+		Type:            "event",
+		ProtocolVersion: currentLocalProtocolVersion,
+		Event:           event,
+	}
+	overflowed := make([]*subscription, 0)
 	d.subMu.RLock()
-	defer d.subMu.RUnlock()
 	for _, sub := range d.subscriptions {
 		if sub.network != event.Network {
 			continue
@@ -1290,13 +1338,43 @@ func (d *Daemon) broadcast(event ThalwegEvent) {
 		if len(sub.streams) > 0 && !sub.streams[event.Stream] {
 			continue
 		}
-		_ = sub.client.Encode(StreamMessage{
-			Type:            "event",
-			ProtocolVersion: currentLocalProtocolVersion,
-			SubscriptionID:  sub.id,
-			Event:           event,
-		})
+		message.SubscriptionID = sub.id
+		select {
+		case sub.queue <- message:
+		default:
+			overflowed = append(overflowed, sub)
+		}
 	}
+	d.subMu.RUnlock()
+	for _, sub := range overflowed {
+		if d.removeSubscription(sub.id, sub) {
+			d.trace(false, "subscription.delivery", "disconnecting slow subscriber", "subscriptionId", sub.id)
+			_ = sub.client.conn.Close()
+		}
+	}
+}
+
+func (d *Daemon) deliverSubscription(sub *subscription) {
+	defer d.backgroundWG.Done()
+	for message := range sub.queue {
+		if err := sub.client.Encode(message); err != nil {
+			d.removeSubscription(sub.id, sub)
+			_ = sub.client.conn.Close()
+			return
+		}
+	}
+}
+
+func (d *Daemon) removeSubscription(id string, expected *subscription) bool {
+	d.subMu.Lock()
+	defer d.subMu.Unlock()
+	sub, exists := d.subscriptions[id]
+	if !exists || (expected != nil && sub != expected) {
+		return false
+	}
+	delete(d.subscriptions, id)
+	close(sub.queue)
+	return true
 }
 
 func (d *Daemon) removeClientSubscriptions(client *clientConn) {
@@ -1305,6 +1383,7 @@ func (d *Daemon) removeClientSubscriptions(client *clientConn) {
 	for id, sub := range d.subscriptions {
 		if sub.client == client {
 			delete(d.subscriptions, id)
+			close(sub.queue)
 		}
 	}
 }
@@ -1424,14 +1503,5 @@ func (d *Daemon) restoreMeshPeers() {
 				)
 			}
 		}()
-	}
-}
-
-func (d *Daemon) handleP2PStream(stream network.Stream) {
-	defer stream.Close()
-
-	scanner := bufio.NewScanner(stream)
-	for scanner.Scan() {
-		fmt.Printf("Received P2P msg from %s: %s\n", stream.Conn().RemotePeer(), scanner.Text())
 	}
 }

@@ -1,6 +1,6 @@
 # Thalweg CLI and Local Installation
 
-Last reviewed: 2026-07-30
+Last reviewed: 2026-08-02
 
 ## Purpose
 
@@ -298,7 +298,8 @@ thalweg event query \
   --streams user:note,voice:transcript \
   --from 2026-07-30T00:00:00Z \
   --to 2026-07-31T00:00:00Z \
-  --limit 100
+  --limit 100 \
+  --order desc
 ```
 
 Inspect event-ID conflicts observed during synchronization:

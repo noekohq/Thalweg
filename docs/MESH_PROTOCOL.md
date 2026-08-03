@@ -112,11 +112,11 @@ and transfers only events still missing.
 ## Current Limitations
 
 - Inventory cursors are session-local and not persisted.
-- Building a page queries and sorts full network history in memory, so wire
-  usage is bounded but database work is not incremental.
+- Inventory pages walk the network/event-ID secondary index directly. Cursors
+  are opaque positions in that index; progress remains session-local.
 - Events whose encoded page exceeds 1 MiB cannot synchronize.
 - A page is applied event-by-event rather than as one batch transaction.
-- IDs inserted lexically before an active cursor wait until the next session.
+- IDs inserted before an active cursor position wait until the next session.
 - There is no live fanout, rate limiting, peer-health model, or periodic
   background retry beyond startup restoration.
 

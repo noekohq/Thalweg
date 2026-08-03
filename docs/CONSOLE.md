@@ -1,6 +1,6 @@
 # Thalweg Console and Mesh Lab Specification
 
-Last reviewed: 2026-07-30
+Last reviewed: 2026-08-02
 
 ## Purpose
 
@@ -66,7 +66,8 @@ contracts and desktop packaging stabilize.
 Not yet implemented from Console 0:
 
 - Live subscription/tail in either frontend.
-- Cursor-based pagination or true newest-first daemon queries.
+- Cursor-based pagination. The bounded diagnostic query now explicitly requests
+  newest-first results.
 - Daemon uptime, storage aggregates, peer health, synchronization state, or
   topology edges; these are labeled unsupported instead of inferred.
 - Mesh Lab or any state-changing console operation.

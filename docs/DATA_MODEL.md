@@ -126,7 +126,8 @@ because that substitution could not distinguish a literal `%3A` from a colon.
 
 This layout efficiently scans one stream, but a multi-stream query currently
 scans each stream separately, decodes values, and sorts all matching events in
-memory. It is not yet a globally time-major index.
+memory. It is not yet a globally time-major index. Public queries accept
+explicit ascending or descending order; limits are applied after ordering.
 
 Network-wide event identity uses:
 
@@ -136,7 +137,8 @@ event-id-v3:{networkB64}:{eventIdB64} = {primaryEventKey}
 
 The index is written in the same transaction as new events. A missing target or
 mismatched envelope is treated as storage corruption rather than silently
-recreating history.
+recreating history. Synchronization inventory pages walk this index directly
+instead of repeatedly querying and sorting the full network timeline.
 
 Peer addresses use:
 

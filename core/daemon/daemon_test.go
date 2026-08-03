@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -30,6 +32,37 @@ func TestIngestAndQueryChronologicalOrder(t *testing.T) {
 	}
 	if events[0].ID != "earlier" || events[1].ID != "later" {
 		t.Fatalf("events not chronological: %s, %s", events[0].ID, events[1].ID)
+	}
+}
+
+func TestQueryDescendingLimitReturnsNewestEvents(t *testing.T) {
+	d := newTestDaemon(t)
+
+	for index, occurredAt := range []string{
+		"2026-01-01T00:01:00Z",
+		"2026-01-01T00:02:00Z",
+		"2026-01-01T00:03:00Z",
+	} {
+		if _, err := d.ingest(
+			"test",
+			"user:note",
+			occurredAt,
+			fmt.Sprintf("event-%d", index+1),
+			json.RawMessage(`{}`),
+		); err != nil {
+			t.Fatalf("ingest event %d: %v", index+1, err)
+		}
+	}
+
+	events, err := d.queryOrdered("test", nil, "", "", 2, "desc")
+	if err != nil {
+		t.Fatalf("query descending: %v", err)
+	}
+	if len(events) != 2 || events[0].ID != "event-3" || events[1].ID != "event-2" {
+		t.Fatalf("descending limited events = %#v, want event-3 then event-2", events)
+	}
+	if _, err := d.queryOrdered("test", nil, "", "", 0, "sideways"); err == nil {
+		t.Fatal("expected invalid query order to fail")
 	}
 }
 
@@ -288,6 +321,34 @@ func TestConcurrentIdempotentIngestStoresOneEvent(t *testing.T) {
 	}
 	if len(events) != 1 {
 		t.Fatalf("expected one stored event, got %d", len(events))
+	}
+}
+
+func TestSlowSubscriptionDoesNotBlockIngestion(t *testing.T) {
+	d := newTestDaemon(t)
+	server, client := net.Pipe()
+	t.Cleanup(func() {
+		_ = server.Close()
+		_ = client.Close()
+	})
+	sub := &subscription{
+		id:      "slow",
+		network: "test",
+		streams: map[string]bool{"user:note": true},
+		client:  &clientConn{conn: server, enc: json.NewEncoder(server)},
+		queue:   make(chan StreamMessage, 1),
+	}
+	sub.queue <- StreamMessage{}
+	d.subscriptions[sub.id] = sub
+
+	if _, err := d.ingest("test", "user:note", "", "non-blocking", json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("ingest with slow subscriber: %v", err)
+	}
+	d.subMu.RLock()
+	_, retained := d.subscriptions[sub.id]
+	d.subMu.RUnlock()
+	if retained {
+		t.Fatal("slow subscription remained registered after its bounded queue overflowed")
 	}
 }
 

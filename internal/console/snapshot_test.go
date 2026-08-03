@@ -61,7 +61,7 @@ func TestSnapshotLoadsSharedConsoleState(t *testing.T) {
 		t.Fatalf("stream summaries = %#v", snapshot.Streams)
 	}
 	query := caller.calls[2].payload.(map[string]any)
-	if query["network"] != "home" || query["limit"] != 25 {
+	if query["network"] != "home" || query["limit"] != 25 || query["order"] != "desc" {
 		t.Fatalf("event query payload = %#v", query)
 	}
 	if query["from"] != "2026-07-29T18:00:00Z" {

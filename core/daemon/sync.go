@@ -425,31 +425,83 @@ func (d *Daemon) inventoryPage(
 	if limit <= 0 || limit > syncMaxPageSize {
 		return nil, "", false, fmt.Errorf("inventory limit must be between 1 and %d", syncMaxPageSize)
 	}
-	events, err := d.query(networkName, nil, "", "", 0)
+	if networkName == "" {
+		return nil, "", false, fmt.Errorf("network is required")
+	}
+	if cursor != "" {
+		if _, err := base64.RawURLEncoding.DecodeString(cursor); err != nil {
+			return nil, "", false, fmt.Errorf("invalid inventory cursor")
+		}
+	}
+	type indexedEntry struct {
+		entry  InventoryEntry
+		cursor string
+	}
+	indexed := make([]indexedEntry, 0, limit+1)
+	err := d.store.View(func(txn *badger.Txn) error {
+		resolutions, err := conflictResolutionsTxn(txn, networkName)
+		if err != nil {
+			return err
+		}
+		prefix := []byte(fmt.Sprintf("event-id-v3:%s:", encodeKeyPart(networkName)))
+		seek := prefix
+		if cursor != "" {
+			seek = append(append([]byte(nil), prefix...), []byte(cursor)...)
+		}
+		iterator := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer iterator.Close()
+		for iterator.Seek(seek); iterator.ValidForPrefix(prefix); iterator.Next() {
+			key := iterator.Item().KeyCopy(nil)
+			position := string(key[len(prefix):])
+			if cursor != "" && position <= cursor {
+				continue
+			}
+			decodedID, err := base64.RawURLEncoding.DecodeString(position)
+			if err != nil {
+				return fmt.Errorf("decode event ID index key: %w", err)
+			}
+			eventID := string(decodedID)
+			if _, superseded := resolutions[eventID]; superseded {
+				continue
+			}
+			event, err := findEventByID(txn, networkName, eventID)
+			if err != nil {
+				return err
+			}
+			if event == nil {
+				return fmt.Errorf("event ID index entry %q is missing", eventID)
+			}
+			digest, err := eventDigest(*event)
+			if err != nil {
+				return err
+			}
+			indexed = append(indexed, indexedEntry{
+				entry:  InventoryEntry{ID: eventID, Digest: digest},
+				cursor: position,
+			})
+			if len(indexed) > limit {
+				break
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, "", false, err
 	}
-	entries := make([]InventoryEntry, 0, len(events))
-	for _, event := range events {
-		if event.ID <= cursor {
-			continue
-		}
-		digest, err := eventDigest(event)
-		if err != nil {
-			return nil, "", false, err
-		}
-		entries = append(entries, InventoryEntry{ID: event.ID, Digest: digest})
+	done := len(indexed) <= limit
+	if !done {
+		indexed = indexed[:limit]
+	}
+	entries := make([]InventoryEntry, 0, len(indexed))
+	for _, item := range indexed {
+		entries = append(entries, item.entry)
 	}
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].ID < entries[j].ID
 	})
-	done := len(entries) <= limit
-	if len(entries) > limit {
-		entries = entries[:limit]
-	}
 	nextCursor := ""
-	if len(entries) > 0 {
-		nextCursor = entries[len(entries)-1].ID
+	if len(indexed) > 0 {
+		nextCursor = indexed[len(indexed)-1].cursor
 	}
 	return entries, nextCursor, done, nil
 }

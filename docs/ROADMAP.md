@@ -1,6 +1,6 @@
 # Thalweg System Roadmap
 
-Last reviewed: 2026-07-30
+Last reviewed: 2026-08-02
 
 ## North Star
 
@@ -60,9 +60,8 @@ Implemented:
 
 Prototype limitations:
 
-- Synchronization inventory scans and sorts full network history in memory even
-  though wire pages are bounded.
-- Inventory cursors and progress are session-local rather than durable.
+- Synchronization inventory pages walk the event-ID index incrementally, but
+  cursors and progress remain session-local rather than durable.
 - Event frames are capped at 1 MiB; larger local events cannot synchronize.
 - Local ingestion is serialized while advancing the HLC.
 - One Badger database contains every logical network.
@@ -100,8 +99,10 @@ Prototype limitations:
 
 - The socket relies on local filesystem permissions for access control and has
   message versioning but no handshake or feature negotiation.
-- There are no request limits, deadlines, backpressure, or structured errors.
-- Subscription delivery may block behind a slow client.
+- Local request lines have a 1 MiB limit, but handlers have no per-action
+  deadlines and errors are not yet structured.
+- Subscription delivery uses bounded per-client queues and disconnects slow
+  consumers; durable acknowledgement and replay are not implemented.
 - Socket integration coverage currently exercises lifecycle and network status,
   but not every action.
 

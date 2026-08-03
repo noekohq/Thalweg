@@ -7,11 +7,12 @@ import (
 	"strconv"
 
 	"github.com/dgraph-io/badger/v4"
+	"thalweg/internal/ipc"
 )
 
 const (
 	daemonVersion               = "0.1.0-dev"
-	currentLocalProtocolVersion = 1
+	currentLocalProtocolVersion = ipc.ProtocolVersion
 	currentStorageSchemaVersion = 3
 	storageSchemaVersionKey     = "meta:storage-schema-version"
 )

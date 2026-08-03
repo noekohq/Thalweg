@@ -65,7 +65,8 @@ and `thalweg daemon`; see `docs/CLI.md`.
 - `occurredAt` is supplied by the producer or assigned at ingestion.
 - `insertedAt` and `propagatedAt` are assigned by the origin daemon and remain
   immutable during replication.
-- Queries are returned in deterministic chronological order.
+- Queries are returned in deterministic requested chronological order; the
+  default is ascending and `desc` applies limits newest-first.
 - An empty stream filter means all streams in the selected network.
 - Empty queries serialize as `[]`.
 - Remote synchronization is inventory-first, bounded, and scoped to the
@@ -91,7 +92,7 @@ Do not describe these as implemented:
 The daemon currently has persisted identity and HLC state, authenticated
 multi-network membership, bounded bidirectional synchronization, one Badger
 database, approval-based mDNS enrollment, manual/startup peer sync, and
-in-memory live subscriptions. The read-only Console has Bubble Tea and
+bounded in-memory live subscriptions. The read-only Console has Bubble Tea and
 loopback-browser frontends over one shared public-IPC observer model; peer
 health, sync state, live tail, pagination, and Mesh Lab controls remain future
 work.

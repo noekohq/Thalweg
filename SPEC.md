@@ -45,8 +45,9 @@ idempotently.
 
 ## Current Phase
 
-The current MVP proves a single-node local timeline over a Unix socket. P2P
-replication, durable scheduling, CRDT taxonomy, TTL policies, local model
-execution, and Noeko handoff remain target architecture.
+The current MVP provides a restart-safe local timeline plus explicit,
+authenticated multi-network synchronization and approval-based LAN enrollment.
+Continuous replication, durable scheduling, CRDT taxonomy, TTL policies, local
+model execution, and Noeko handoff remain target architecture.
 
 See `docs/ARCHITECTURE.md` and `docs/ROADMAP.md` for implementation detail.

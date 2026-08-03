@@ -145,6 +145,7 @@ func (s Service) Snapshot(ctx context.Context, requestedNetwork string) Snapshot
 		"from":    now.Add(-recentEventWindow).UTC().Format(time.RFC3339Nano),
 		"to":      "",
 		"limit":   limit,
+		"order":   "desc",
 	}
 	if err := s.Caller.Call(ctx, "event_query", payload, &result.Events); err != nil {
 		result.State = "degraded"

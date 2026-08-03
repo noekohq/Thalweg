@@ -101,7 +101,7 @@ The current daemon:
 
 Replication currently runs on explicit `mesh_sync` and when a persisted peer is
 restored at startup. There is no continuous live fanout or periodic background
-retry. The legacy p2p stream still only logs text.
+retry.
 
 ## Target Topology
 

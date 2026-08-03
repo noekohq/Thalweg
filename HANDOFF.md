@@ -1,6 +1,6 @@
 # Thalweg Daemon Handoff
 
-Last reviewed: 2026-07-30
+Last reviewed: 2026-08-02
 
 ## Current State
 
@@ -80,18 +80,19 @@ creates one `insights:summary` event, and all four print chronologically.
 ## Known Technical Debt
 
 - Authenticated synchronization invokes the atomic replicated-event ingest
-  path, but inventory construction still scans full network history in memory.
+  path and pages through the event-ID index, but cursor progress is not durable.
 - Conflict resolution is currently lossless `preserve-both` only. Winner
   selection, semantic merge, undo, and subscriber retraction are intentionally
   deferred; see `docs/CONFLICTS.md`.
 - Local ingestion is serialized while advancing the persistent HLC; this may
   become a throughput bottleneck under high-volume concurrent producers.
 - Multi-stream queries sort decoded events in memory.
-- Subscriptions are future-only, in-memory, and have no backpressure.
+- Subscriptions are future-only and in-memory. Bounded queues prevent slow
+  sockets from blocking ingestion by disconnecting consumers that fall behind;
+  acknowledgement and replay are still absent.
 - Requests without `protocolVersion` are accepted as legacy version `1`; there
   is no handshake or feature-level negotiation.
-- The legacy p2p stream only logs text; the mesh stream authenticates and
-  synchronizes one network at a time.
+- The mesh stream authenticates and synchronizes one network at a time.
 - Persisted peer restoration requires a stable configured address until
   discovery exists.
 - `thalweg daemon start` detaches, verifies socket readiness, and records
@@ -109,13 +110,13 @@ creates one `insights:summary` event, and all four print chronologically.
   still receive the same version-1 shared secret.
 - TCP source-port reuse is disabled. Re-enable it only with tested hole
   punching and same-port macOS acceptance coverage.
-- Console event inspection is a bounded 24-hour diagnostic query, not
-  cursor-based pagination or a complete newest-first event browser.
+- Console event inspection requests the newest events in a bounded 24-hour
+  diagnostic window, but does not yet support cursor-based pagination.
 - Peer health, topology edges, synchronization status, storage summaries, and
   processing health remain unavailable daemon read contracts and are shown as
   unsupported by both console frontends.
-- `data/event.proto` is reserved but currently empty.
-- `test.go` is a standalone historical libp2p experiment.
+- `data/event.proto` is reserved but currently empty; the active JSON contract
+  is shared by a small internal Go IPC package and cross-repository docs.
 
 ## Recommended Next Work
 

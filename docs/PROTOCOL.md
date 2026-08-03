@@ -70,15 +70,18 @@ Payload:
   "streams": ["user:note", "system:app_activity"],
   "from": "2026-07-30T00:00:00.000Z",
   "to": "2026-07-31T00:00:00.000Z",
-  "limit": 100
+  "limit": 100,
+  "order": "desc"
 }
 ```
 
 `network` is required. An absent or empty `streams` array means all streams in
-the network. `from` and `to` are inclusive. A non-positive `limit` is unlimited.
+the network. `from` and `to` are inclusive. A zero `limit` is unlimited and a
+negative limit is rejected. `order` is `asc` by default and may be `desc`.
 Query bounds may use any valid RFC3339/RFC3339Nano offset or fractional
-precision. Results contain canonical UTC timestamps and are returned in
-ascending chronological order.
+precision. Results contain canonical UTC timestamps. The limit is applied after
+the requested chronological ordering, so `desc` with a limit returns the newest
+matching events.
 
 Resolved collision originals are omitted from ordinary queries. Their
 immutable recovered variants and `system:conflict_resolution` audit event are
@@ -134,7 +137,9 @@ Returns:
 ```
 
 An empty stream list subscribes to all future events in the network.
-Subscriptions are in memory and tied to the socket connection.
+Subscriptions are in memory and tied to the socket connection. Delivery uses a
+bounded per-subscription queue; a client that cannot keep up is disconnected
+instead of blocking ingestion for other producers.
 
 ### `siphon_unregister`
 
@@ -328,6 +333,10 @@ Explicitly mismatched requests are rejected with a versioned error. For
 compatibility with the first prototype, an absent request version is interpreted
 as version `1`; this fallback should be removed deliberately in a future
 breaking version. Local IPC has no handshake or feature negotiation yet.
+
+Local request lines are explicitly capped at 1 MiB. Clients should apply their
+own deadlines; long-lived subscription sockets intentionally remain open until
+unregistered, disconnected, or the daemon shuts down.
 
 All field/action changes must still be coordinated with `noekohq/thalweg-js`.
 
