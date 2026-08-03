@@ -123,6 +123,10 @@ type Daemon struct {
 	meshSyncMu       sync.Mutex
 	meshSyncing      map[string]struct{}
 	meshLeaving      map[string]struct{}
+	meshWakeMu       sync.Mutex
+	meshWakeNetworks map[string]struct{}
+	meshWake         chan struct{}
+	meshSyncDebounce time.Duration
 }
 
 type clientConn struct {
@@ -151,6 +155,7 @@ type Config struct {
 	P2PListenAddresses []string
 	Debug              bool
 	MeshSyncInterval   time.Duration
+	MeshSyncDebounce   time.Duration
 }
 
 func New(path string, dbPath string) (*Daemon, error) {
@@ -225,8 +230,11 @@ func NewWithConfig(config Config) (*Daemon, error) {
 		enrollmentRequests: make(map[string]*pendingEnrollment),
 		discoveredPeers:    make(map[peer.ID]peer.AddrInfo),
 		meshSyncInterval:   config.MeshSyncInterval,
+		meshSyncDebounce:   config.MeshSyncDebounce,
 		meshSyncing:        make(map[string]struct{}),
 		meshLeaving:        make(map[string]struct{}),
+		meshWakeNetworks:   make(map[string]struct{}),
+		meshWake:           make(chan struct{}, 1),
 		debug:              config.Debug,
 		logger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
@@ -234,6 +242,9 @@ func NewWithConfig(config Config) (*Daemon, error) {
 	}
 	if d.meshSyncInterval == 0 {
 		d.meshSyncInterval = 30 * time.Second
+	}
+	if d.meshSyncDebounce == 0 {
+		d.meshSyncDebounce = 100 * time.Millisecond
 	}
 
 	d.p2p.SetStreamHandler(meshProtocolID, d.handleMeshStream)
@@ -975,6 +986,7 @@ func (d *Daemon) ingestInternal(networkName, stream, occurredAt, eventID string,
 	if created {
 		d.hlc.commit(nextClockState)
 		d.broadcast(event)
+		d.signalMeshSync(networkName)
 	}
 	return event, nil
 }
@@ -1502,6 +1514,7 @@ func (d *Daemon) restoreMeshPeers() {
 	if d.meshSyncInterval < 0 {
 		return
 	}
-	d.backgroundWG.Add(1)
+	d.backgroundWG.Add(2)
 	go d.meshRetryLoop()
+	go d.meshEventSyncLoop()
 }

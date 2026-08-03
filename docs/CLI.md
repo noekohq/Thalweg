@@ -348,8 +348,9 @@ thalweg peer dial \
 ```
 
 `peer dial` authenticates and remembers the peer but does not exchange events.
-Remembered authorized peers are eligible for periodic synchronization. To
-converge immediately:
+New local events trigger coalesced synchronization to remembered authorized
+peers, with periodic anti-entropy as a fallback. To force convergence
+immediately:
 
 ```bash
 thalweg peer sync \
@@ -369,11 +370,12 @@ thalweg peer list
 thalweg peer list --network home
 ```
 
-The daemon periodically retries remembered authorized peers. Failed attempts
-use bounded exponential backoff and expose their next retry through `peer
-list`. There is still no continuous live fanout, peer address rediscovery, or
-durable page cursor, so `peer sync` remains useful when testing or when
-immediate convergence matters.
+The daemon normally starts a coalesced synchronization shortly after local
+ingestion. It also periodically retries remembered authorized peers. Failed
+attempts use bounded exponential backoff and expose their next retry through
+`peer list`. There is still no long-lived remote event stream, peer address
+rediscovery, or durable page cursor, so `peer sync` remains useful when testing
+or when forced convergence matters.
 
 ## Console
 

@@ -19,6 +19,8 @@ const (
 	meshRetryMaximumDelay = 15 * time.Minute
 )
 
+var errMeshSyncInProgress = errors.New("mesh synchronization is already in progress")
+
 type persistedMeshPeer struct {
 	Network             string      `json:"network"`
 	PeerID              string      `json:"peerId,omitempty"`
@@ -229,7 +231,7 @@ func (d *Daemon) synchronizeKnownPeer(
 	address string,
 ) (SyncResult, error) {
 	if !d.startMeshPeerSync(networkName, info.ID) {
-		return SyncResult{}, fmt.Errorf("mesh synchronization is already in progress")
+		return SyncResult{}, errMeshSyncInProgress
 	}
 	defer d.finishMeshPeerSync(networkName, info.ID)
 	now := d.clockNow().UTC()
@@ -323,6 +325,96 @@ func (d *Daemon) meshRetryLoop() {
 			return
 		case <-ticker.C:
 			d.syncDueMeshPeers()
+		}
+	}
+}
+
+func (d *Daemon) signalMeshSync(networkName string) {
+	if networkName == "" || d.meshSyncInterval < 0 {
+		return
+	}
+	d.meshWakeMu.Lock()
+	if d.meshWakeNetworks == nil {
+		d.meshWakeNetworks = make(map[string]struct{})
+	}
+	d.meshWakeNetworks[networkName] = struct{}{}
+	d.meshWakeMu.Unlock()
+	if d.meshWake == nil {
+		return
+	}
+	select {
+	case d.meshWake <- struct{}{}:
+	default:
+	}
+}
+
+func (d *Daemon) meshEventSyncLoop() {
+	defer d.backgroundWG.Done()
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-d.meshWake:
+		}
+		if d.meshSyncDebounce > 0 {
+			timer := time.NewTimer(d.meshSyncDebounce)
+			select {
+			case <-d.ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+		networks := d.takeMeshWakeNetworks()
+		for _, networkName := range networks {
+			d.syncTriggeredMeshPeers(networkName)
+		}
+	}
+}
+
+func (d *Daemon) takeMeshWakeNetworks() []string {
+	d.meshWakeMu.Lock()
+	networks := make([]string, 0, len(d.meshWakeNetworks))
+	for networkName := range d.meshWakeNetworks {
+		networks = append(networks, networkName)
+	}
+	clear(d.meshWakeNetworks)
+	d.meshWakeMu.Unlock()
+	sort.Strings(networks)
+	return networks
+}
+
+func (d *Daemon) syncTriggeredMeshPeers(networkName string) {
+	records, err := d.loadMeshPeers()
+	if err != nil {
+		d.trace(false, "mesh.event", "failed to load peers for event-triggered sync", "network", networkName, "error", err)
+		return
+	}
+	for _, record := range records {
+		if d.ctx.Err() != nil || record.Network != networkName {
+			continue
+		}
+		address, err := multiaddr.NewMultiaddr(record.Address)
+		if err != nil {
+			continue
+		}
+		info, err := peer.AddrInfoFromP2pAddr(address)
+		if err != nil {
+			continue
+		}
+		connected := d.p2p.Network().Connectedness(info.ID) != libp2pnetwork.NotConnected
+		if !connected && record.LastError != "" {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(d.ctx, syncTimeout)
+		_, err = d.synchronizeKnownPeer(ctx, *info, record.Network, record.Address)
+		cancel()
+		if errors.Is(err, errMeshSyncInProgress) {
+			d.signalMeshSync(networkName)
+			continue
+		}
+		if err != nil {
+			d.trace(false, "mesh.event", "event-triggered mesh sync failed", "network", networkName, "remotePeerId", info.ID, "error", err)
 		}
 	}
 }

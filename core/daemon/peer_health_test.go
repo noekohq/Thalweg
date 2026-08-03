@@ -84,6 +84,83 @@ func TestBackgroundMeshRetrySynchronizesKnownPeer(t *testing.T) {
 	t.Fatal("known peer did not synchronize in the background")
 }
 
+func TestLocalIngestTriggersConnectedPeerSynchronization(t *testing.T) {
+	first := newMeshTestDaemon(t)
+	second := newMeshTestDaemon(t)
+	first.meshSyncDebounce = 10 * time.Millisecond
+	first.meshSyncInterval = time.Hour
+	_, invitation, err := first.memberships.create("home")
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	if _, _, err := second.memberships.join(invitation); err != nil {
+		t.Fatalf("join network: %v", err)
+	}
+	target := fmt.Sprintf("%s/p2p/%s", second.p2p.Addrs()[0], second.p2p.ID())
+	payload, _ := json.Marshal(map[string]any{"targetAddr": target, "network": "home"})
+	if _, err := first.routes["mesh_sync"](nil, payload); err != nil {
+		t.Fatalf("establish known peer: %v", err)
+	}
+	first.backgroundWG.Add(1)
+	go first.meshEventSyncLoop()
+	sub := &subscription{
+		id:      "remote-consumer",
+		network: "home",
+		streams: map[string]bool{"system:test": true},
+		queue:   make(chan StreamMessage, 1),
+	}
+	second.subMu.Lock()
+	second.subscriptions[sub.id] = sub
+	second.subMu.Unlock()
+	defer second.removeSubscription(sub.id, sub)
+
+	if _, err := first.ingest("home", "system:test", "", "event-triggered", json.RawMessage(`{"ok":true}`)); err != nil {
+		t.Fatalf("ingest local event: %v", err)
+	}
+	select {
+	case message := <-sub.queue:
+		if message.Event.ID != "event-triggered" {
+			t.Fatalf("subscription event = %#v", message.Event)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("connected peer subscriber did not receive the local event")
+	}
+	events, err := second.query("home", []string{"system:test"}, "", "", 0)
+	if err != nil || len(events) != 1 || events[0].ID != "event-triggered" {
+		t.Fatalf("replicated query = %#v, %v", events, err)
+	}
+}
+
+func TestReplicatedIngestDoesNotTriggerMeshEcho(t *testing.T) {
+	d := newMeshTestDaemon(t)
+	event := ThalwegEvent{
+		ID:           "remote-event",
+		Network:      "home",
+		Stream:       "system:test",
+		OccurredAt:   "2026-08-03T12:00:00.000000000Z",
+		InsertedAt:   "2026-08-03T12:00:00.000000000Z",
+		PropagatedAt: "2026-08-03T12:00:00.000000000Z",
+		DeviceID:     "remote-device",
+		Payload:      json.RawMessage(`{"ok":true}`),
+	}
+	if _, created, err := d.ingestReplicated(event); err != nil || !created {
+		t.Fatalf("ingest replicated event = created %v, err %v", created, err)
+	}
+	if networks := d.takeMeshWakeNetworks(); len(networks) != 0 {
+		t.Fatalf("replicated ingest queued mesh echo for %v", networks)
+	}
+}
+
+func TestMeshSyncSignalsCoalesceByNetwork(t *testing.T) {
+	d := newMeshTestDaemon(t)
+	for range 100 {
+		d.signalMeshSync("home")
+	}
+	if networks := d.takeMeshWakeNetworks(); len(networks) != 1 || networks[0] != "home" {
+		t.Fatalf("coalesced networks = %v", networks)
+	}
+}
+
 func TestNetworkLeaveRemovesMembershipAndKnownPeers(t *testing.T) {
 	d := newMeshTestDaemon(t)
 	if _, _, err := d.memberships.create("home"); err != nil {

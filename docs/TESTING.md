@@ -14,8 +14,10 @@ thalweg lab publish \
   --data '{"scenario":"device-a-to-device-b"}'
 ```
 
-Keep the printed `runId`, `originDeviceId`, and `expected`. After periodic sync
-or an explicit `thalweg peer sync`, run this on device B:
+Keep the printed `runId`, `originDeviceId`, and `expected`. A connected peer
+should receive the run shortly after ingestion through the event-triggered
+sync. Use explicit `thalweg peer sync` when testing forced recovery, then run
+this on device B:
 
 ```bash
 thalweg lab verify \

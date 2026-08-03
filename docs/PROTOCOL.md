@@ -334,7 +334,7 @@ Connects to the peer, performs the remote membership handshake for exactly one
 mounted network, and persists the peer under that network only after mutual
 authentication succeeds. Returns the peer ID, redacted network membership, and
 `authorized: true`. This call does not exchange events, but the remembered peer
-is eligible for the daemon's periodic synchronization loop; see
+is eligible for event-triggered synchronization and periodic anti-entropy; see
 `MESH_PROTOCOL.md`.
 
 ### `mesh_sync`
@@ -354,10 +354,12 @@ directions. The response reports `peerId`, the redacted network membership,
 `inventoried`, `pushed`, `pulled`, and `duplicates` counts. A non-empty
 `conflicts` array reports quarantined IDs without aborting unrelated transfer.
 
-The synchronized peer address is persisted for automatic retry. The daemon
-periodically synchronizes remembered, already-authorized peers, records the
-last result, and applies bounded exponential backoff after failures. This is
-eventual polling, not continuous live fanout.
+The synchronized peer address is persisted for automatic delivery and retry.
+Successful local ingestion schedules a short, coalesced synchronization to
+remembered authorized peers. The daemon also runs periodic anti-entropy,
+records the last result, and applies bounded exponential backoff after
+failures. This provides near-immediate availability to remote local
+subscriptions while connected, but is not yet a permanent remote event stream.
 
 ### `mesh_peer_list`
 

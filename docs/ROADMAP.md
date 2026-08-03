@@ -115,8 +115,9 @@ Implemented:
 - A restart-stable libp2p host is created from a private key stored with `0600`
   permissions.
 - Peers can be dialed manually by multiaddress.
-- Authorized peer addresses and synchronization health are remembered and
-  retried periodically with bounded exponential backoff.
+- Authorized peer addresses and synchronization health are remembered. Local
+  event bursts trigger coalesced synchronization, with periodic anti-entropy
+  and bounded exponential backoff as recovery.
 - A prototype stream handler accepts and logs text.
 - Versioned `/thalweg/mesh/1.0.0` mutual membership authentication bound to
   physical libp2p peer IDs.
@@ -124,8 +125,8 @@ Implemented:
   credentials.
 - Local create, join, redacted list, and authenticated network-scoped dial
   actions.
-- Manual and periodic bidirectional synchronization with digest conflict
-  detection.
+- Manual, event-triggered, and periodic bidirectional synchronization with
+  digest conflict detection.
 - Readable peer state, last attempt/success, retry schedule, failure count, and
   last synchronization result.
 - Lossless preserve-both conflict resolution with replicated audit events,
@@ -260,6 +261,8 @@ Definition of done:
 - [x] Quarantine conflicting IDs without blocking unrelated synchronization and
   provide lossless operator-driven preserve-both resolution.
 - [x] Merge clocks and events deterministically after partitions.
+- [x] Trigger coalesced near-immediate synchronization after local ingestion
+  while retaining periodic anti-entropy for repair.
 - Resume interrupted synchronization without restarting from the beginning.
 - [x] Expose persisted peer health, retry state, and the last completed
   synchronization result.
@@ -307,6 +310,8 @@ Definition of done:
 - Support historical replay followed by live delivery without an event gap.
 - Define acknowledgement, retry, timeout, cancellation, and backpressure
   semantics.
+- Define per-source watermarks and allowed lateness so time-window processors
+  do not confuse low-latency delivery with complete input.
 - Assign stable execution IDs and idempotency keys.
 - Record attempt count, processor identity/version, inputs, outputs, and status.
 - Attach causal lineage automatically to derived events.

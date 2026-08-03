@@ -362,8 +362,10 @@ each step:
 
 The current daemon can now exercise manual cross-device convergence, partial
 transfer recovery, restart-triggered synchronization, and network isolation.
-Continuous live fanout is not implemented, so the lab should trigger `mesh_sync`
-after publishing or reconnecting.
+Local publication now triggers a coalesced mesh sync, so the lab should first
+observe near-immediate arrival. It should retain explicit `mesh_sync` as a
+forced-recovery step and distinguish low delivery latency from window
+completeness guarantees.
 
 ## Required Daemon Read Contracts
 

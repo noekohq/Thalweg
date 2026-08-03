@@ -71,8 +71,12 @@ Successful `mesh_dial` calls persist a network-scoped peer:
 mesh-peer-v1:{networkB64}:{peerId}
 ```
 
-The daemon periodically reconnects, reauthenticates, and synchronizes each
-scoped peer. Failures use bounded exponential backoff, and the latest attempt,
+Successful local ingestion schedules a short, coalesced inventory sync for the
+event's network. Connected authorized peers normally receive the new history
+near-immediately; a previously healthy peer may also be reconnected on the
+first signal. Replicated ingestion does not schedule another sync, preventing
+echo loops. The daemon additionally runs periodic anti-entropy for every scoped
+peer. Failures use bounded exponential backoff, and the latest attempt,
 success, error, retry time, and synchronization result are persisted for
 operator inspection. A plain physical libp2p connection is never treated as
 network authorization, and an unauthenticated address is never enrolled in the
@@ -122,9 +126,10 @@ and transfers only events still missing.
 - Events whose encoded page exceeds 1 MiB cannot synchronize.
 - A page is applied event-by-event rather than as one batch transaction.
 - IDs inserted before an active cursor position wait until the next session.
-- There is no live fanout, rate limiting, durable synchronization cursor, or
-  proof that a previously successful peer remains converged between polling
-  attempts.
+- Event-triggered delivery still performs an inventory synchronization rather
+  than maintaining a long-lived remote event stream. There is no rate limiting,
+  durable synchronization cursor, or proof that a previously successful peer
+  remains converged between exchanges.
 - Background retries are sequential and use the last known address; address
   discovery and multi-address selection are not yet implemented for mounted
   peers.

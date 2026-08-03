@@ -6,8 +6,8 @@ Last reviewed: 2026-08-03
 
 This repository contains a working local-first mesh MVP, not the complete
 distributed architecture. The daemon can ingest, persist, query, live-push,
-authenticate peers, enroll devices, and synchronize events explicitly or
-through periodic retry of remembered authorized peers.
+authenticate peers, enroll devices, and synchronize events explicitly,
+immediately after local event bursts, or through periodic anti-entropy.
 
 The TypeScript SDK lives at `packages/sdk-js` in this monorepo.
 
@@ -40,8 +40,9 @@ Important entry points:
 - `core/daemon/enrollment.go`: mDNS discovery, time-bounded offers, pending
   approval, credential delivery, and initial sync.
 - `core/daemon/sync.go`: inventory/digest comparison and event transfer.
-- `core/daemon/peer_health.go`: persisted authorized-peer health, periodic
-  synchronization, bounded retry, and network-scoped cleanup.
+- `core/daemon/peer_health.go`: persisted authorized-peer health,
+  event-triggered synchronization, periodic anti-entropy, bounded retry, and
+  network-scoped cleanup.
 - `core/daemon/conflicts.go`: persisted conflict observations, replicated
   preserve-both resolutions, deterministic recovery, and query supersession.
 - `core/daemon/version.go`: daemon/protocol constants and storage compatibility.
@@ -101,9 +102,10 @@ creates one `insights:summary` event, and all four print chronologically.
   the legacy message, but handlers still lack action-specific server-side time
   budgets.
 - The mesh stream authenticates and synchronizes one network at a time.
-- Periodic remembered-peer synchronization requires a stable configured
-  address until mounted-peer discovery and multi-address selection exist. It is
-  sequential and does not provide continuous live fanout.
+- Event-triggered and periodic remembered-peer synchronization require a stable
+  configured address until mounted-peer discovery and multi-address selection
+  exist. Bursts coalesce into inventory syncs; this is not yet a permanent
+  remote event stream.
 - `thalweg daemon start` detaches, verifies socket readiness, and records
   restricted lifecycle state and logs. The CLI can inspect, stop, and restart
   it gracefully. Source installs record their checkout and commit, and
@@ -138,11 +140,13 @@ creates one `insights:summary` event, and all four print chronologically.
 
 Milestones 1 and 2 now cover durable identity/order, safe lifecycle, structured
 local errors, authenticated multi-network membership, bounded bidirectional
-sync, local leave, periodic authorized-peer retry, conflict preservation, and
-basic peer-health visibility. Their remaining hardening work is exhaustive IPC
+sync, local leave, event-triggered delivery, periodic anti-entropy, conflict
+preservation, and basic peer-health visibility. Their remaining hardening work is exhaustive IPC
 integration coverage, action deadlines/feature negotiation, credential-v2
 rotation and revocation, mounted-peer/WAN discovery, durable incremental sync
-progress, live fanout, and the guided Mesh Lab.
+progress, long-lived mesh streams, and the guided Mesh Lab. Near-immediate
+delivery does not close the durable-runtime requirement for watermarks,
+allowed lateness, and dirty-window replay.
 
 Any wire change must update `packages/sdk-js` and the canonical root protocol
 documentation in the same change.

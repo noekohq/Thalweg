@@ -206,8 +206,8 @@ go run . spawn \
 
 Equivalent environment variables are `THALWEG_SOCKET_PATH`,
 `THALWEG_STORAGE_PATH`, and comma-separated `THALWEG_P2P_LISTEN_ADDRS`. A
-stable listen address is required for periodic persisted-peer synchronization
-until mounted-peer address discovery exists.
+stable listen address is required for event-triggered and periodic
+persisted-peer synchronization until mounted-peer address discovery exists.
 
 ## Simple Velotic Demo
 

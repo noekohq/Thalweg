@@ -114,7 +114,8 @@ func (s Service) Snapshot(ctx context.Context, requestedNetwork string) Snapshot
 		Events:   make([]Event, 0),
 		Streams:  make([]StreamSummary, 0),
 		Warnings: []string{
-			"Continuous live fanout is not implemented; known peers synchronize periodically with bounded retry.",
+			"Local events trigger coalesced synchronization to authorized peers; periodic anti-entropy remains the delivery fallback.",
+			"Near-immediate replication does not yet provide siphon watermarks or late-window replay guarantees.",
 			"Event results are limited to a recent 24-hour diagnostic window.",
 		},
 		Features: prototypeFeatures(),
