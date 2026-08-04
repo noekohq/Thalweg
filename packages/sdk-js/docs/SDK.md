@@ -95,6 +95,38 @@ await handle.result;
 Continuous mode registers for future matching events. It does not currently
 replay historical events, even if `.tail()` is called.
 
+## Durable Siphons
+
+The first durable runtime contract is exposed as typed create/list/poll/ack
+operations:
+
+```ts
+await t.createDurableSiphon("transcript-archive", {
+  streams: ["voice:transcript"],
+  start: "earliest",
+});
+
+const delivery = await t.pollDurableSiphon("transcript-archive", 25, 20_000);
+for (const event of delivery.events) {
+  await archive.put(event.id, event);
+}
+if (delivery.deliveryId) {
+  await t.acknowledgeDurableSiphon(
+    "transcript-archive",
+    delivery.deliveryId,
+  );
+}
+```
+
+The daemon persists one outstanding batch per name. Polling before
+acknowledgement, including after restart, returns the same event batch with an
+incremented attempt. The receipt-order cursor includes late replicated events
+without confusing it with chronological event order. Destination writes must
+be idempotent. The optional third polling argument waits up to 25 seconds for a
+new match, enabling an efficient near-live worker loop. Fluent
+`.durable(...).run(...)`, leases, windows, lineage, and dead-letter policy
+remain future layers over this foundation.
+
 ## Buffered Siphons
 
 ```ts

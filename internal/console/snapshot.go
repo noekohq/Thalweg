@@ -26,6 +26,7 @@ type Snapshot struct {
 	Status          NodeStatus      `json:"status"`
 	Networks        []Network       `json:"networks"`
 	Peers           []MeshPeer      `json:"peers"`
+	DurableSiphons  []DurableSiphon `json:"durableSiphons"`
 	SelectedNetwork string          `json:"selectedNetwork,omitempty"`
 	Events          []Event         `json:"events"`
 	Streams         []StreamSummary `json:"streams"`
@@ -84,6 +85,18 @@ type StreamSummary struct {
 	LatestAt   string `json:"latestAt,omitempty"`
 }
 
+type DurableSiphon struct {
+	Version           int      `json:"version"`
+	Name              string   `json:"name"`
+	Network           string   `json:"network"`
+	Streams           []string `json:"streams"`
+	Cursor            uint64   `json:"cursor"`
+	UpdatedAt         string   `json:"updatedAt"`
+	PendingDeliveryID string   `json:"pendingDeliveryId,omitempty"`
+	PendingCount      int      `json:"pendingCount"`
+	PendingAttempts   int      `json:"pendingAttempts"`
+}
+
 type Feature struct {
 	Name      string `json:"name"`
 	Supported bool   `json:"supported"`
@@ -109,16 +122,17 @@ func (s Service) Snapshot(ctx context.Context, requestedNetwork string) Snapshot
 			Addresses:     make([]string, 0),
 			AddressGroups: make(map[string][]string),
 		},
-		Networks: make([]Network, 0),
-		Peers:    make([]MeshPeer, 0),
-		Events:   make([]Event, 0),
-		Streams:  make([]StreamSummary, 0),
+		Networks:       make([]Network, 0),
+		Peers:          make([]MeshPeer, 0),
+		DurableSiphons: make([]DurableSiphon, 0),
+		Events:         make([]Event, 0),
+		Streams:        make([]StreamSummary, 0),
 		Warnings: []string{
 			"Local events trigger coalesced synchronization to authorized peers; periodic anti-entropy remains the delivery fallback.",
 			"Near-immediate replication does not yet provide siphon watermarks or late-window replay guarantees.",
 			"Event results are limited to a recent 24-hour diagnostic window.",
 		},
-		Features: prototypeFeatures(),
+		Features: prototypeFeatures(false),
 	}
 	if s.Caller == nil {
 		result.State = "offline"
@@ -158,6 +172,14 @@ func (s Service) Snapshot(ctx context.Context, requestedNetwork string) Snapshot
 	}
 	if result.Peers == nil {
 		result.Peers = make([]MeshPeer, 0)
+	}
+	if err := s.Caller.Call(ctx, "durable_siphon_list", map[string]any{"network": result.SelectedNetwork}, &result.DurableSiphons); err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Durable siphon state unavailable: %v", err))
+	} else {
+		result.Features = prototypeFeatures(true)
+	}
+	if result.DurableSiphons == nil {
+		result.DurableSiphons = make([]DurableSiphon, 0)
 	}
 
 	limit := s.EventLimit
@@ -220,12 +242,13 @@ func summarizeStreams(events []Event) []StreamSummary {
 	return result
 }
 
-func prototypeFeatures() []Feature {
+func prototypeFeatures(durableSiphons bool) []Feature {
 	return []Feature{
 		{Name: "Local timeline", Supported: true, Detail: "Status, memberships, streams, and recent events"},
 		{Name: "Enrollment", Supported: true, Detail: "Available through the operator CLI"},
 		{Name: "Peer health", Supported: true, Detail: "Known peer connection, retry, and last-sync state"},
 		{Name: "Storage summary", Supported: false, Detail: "Daemon aggregate read contract is not implemented"},
-		{Name: "Processing health", Supported: false, Detail: "Durable siphons and executions are not implemented"},
+		{Name: "Durable siphons", Supported: durableSiphons, Detail: "Named cursors, pending batches, acknowledgement, and restart retry"},
+		{Name: "Execution health", Supported: false, Detail: "Processor executions, leases, windows, and lineage are not implemented"},
 	}
 }

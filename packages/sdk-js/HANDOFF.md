@@ -6,7 +6,8 @@ Last reviewed: 2026-08-02
 
 This repository contains a working typed SDK prototype for the local Thalweg
 daemon. It can ingest and query events, subscribe to future events, perform a
-one-shot interval lookback, and write derived events.
+one-shot interval lookback, write derived events, and create/poll/ack named
+durable consumers.
 
 The companion daemon lives at the monorepo root.
 
@@ -49,8 +50,10 @@ chronological order.
 - `tail()` is a type-preserving no-op at runtime.
 - `interval()` runs only once.
 - `retrospective` is unused.
-- Siphon handles expose readiness and processor failure, but there is no durable
-  execution record or retry behavior.
+- Low-level durable siphon methods expose persisted receipt cursors,
+  at-least-once batches, bounded wakeups, and restart retry. The fluent builder
+  does not yet compile or manage that worker loop, and there is no execution
+  record, lease, or retry schedule.
 - Requests time out, but abort-signal cancellation, reconnect, and subscription
   restoration are not implemented.
 - Runtime basin membership must duplicate the compile-time basin definition.

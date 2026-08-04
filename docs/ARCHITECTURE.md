@@ -78,7 +78,7 @@ The current daemon:
 - Persists manually dialed peer addresses and attempts to reconnect at startup.
 - Handles interrupt/termination signals and closes clients, storage, the host,
   and its owned Unix socket.
-- Persists storage schema version `3` and exposes daemon, local protocol, and
+- Persists storage schema version `4` and exposes daemon, local protocol, and
   storage versions through network status.
 - Persists a Hybrid Logical Clock and assigns `(insertedAt, counter)` atomically
   with each locally ingested event.
@@ -154,8 +154,11 @@ A siphon routes selected events to application code:
 - Continuous mode emits individual future events.
 - Buffered mode emits stream-keyed arrays for a time interval or window.
 
-The current implementation supports future-event subscriptions and one-shot
-lookback queries. Scheduling and dirty-window replay are not implemented.
+The current implementation supports future-event subscriptions, one-shot
+lookback queries, and named durable pull consumers with historical replay,
+persisted at-least-once batches, acknowledgements, and restart retry.
+Scheduling, multi-worker leases, watermarks, and dirty-window replay are not
+implemented.
 
 ## Trust Boundaries
 

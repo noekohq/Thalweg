@@ -1,0 +1,16 @@
+README.md
+pyproject.toml
+src/thalweg/__init__.py
+src/thalweg/_transport.py
+src/thalweg/client.py
+src/thalweg/errors.py
+src/thalweg/models.py
+src/thalweg/py.typed
+src/thalweg_sdk.egg-info/PKG-INFO
+src/thalweg_sdk.egg-info/SOURCES.txt
+src/thalweg_sdk.egg-info/dependency_links.txt
+src/thalweg_sdk.egg-info/top_level.txt
+tests/test_client.py
+tests/test_network_api.py
+tests/test_subscriptions.py
+tests/test_transport.py

@@ -233,6 +233,101 @@ describe("Siphon runtime safety", () => {
   });
 });
 
+describe("Durable siphon API", () => {
+  type Streams = {
+    "voice:transcript": { text: string };
+    "user:note": { content: string };
+  };
+
+  test("maps durable create, poll, acknowledgement, and inspection", async () => {
+    const seen: Record<string, unknown>[] = [];
+    const path = await listen((message, socket) => {
+      seen.push(message);
+      const action = String(message.action);
+      const dataByAction: Record<string, unknown> = {
+        durable_siphon_create: {
+          version: 1,
+          name: "transcript-archive",
+          network: "home",
+          streams: ["voice:transcript"],
+          cursor: 0,
+          createdAt: "2026-08-03T12:00:00Z",
+          updatedAt: "2026-08-03T12:00:00Z",
+          pendingCount: 0,
+          pendingAttempts: 0,
+        },
+        durable_siphon_list: [],
+        durable_siphon_poll: {
+          version: 1,
+          name: "transcript-archive",
+          network: "home",
+          deliveryId: "delivery-1",
+          cursorFrom: 0,
+          cursorThrough: 1,
+          attempt: 1,
+          events: [],
+        },
+        durable_siphon_ack: {
+          version: 1,
+          name: "transcript-archive",
+          network: "home",
+          streams: ["voice:transcript"],
+          cursor: 1,
+          createdAt: "2026-08-03T12:00:00Z",
+          updatedAt: "2026-08-03T12:00:01Z",
+          pendingCount: 0,
+          pendingAttempts: 0,
+        },
+      };
+      socket.write(`${JSON.stringify({
+        id: message.id,
+        protocolVersion: THALWEG_PROTOCOL_VERSION,
+        success: true,
+        data: dataByAction[action],
+      })}\n`);
+    });
+    const thalweg = new Thalweg<Streams, {}>({ socket: path, network: "home" });
+    try {
+      await thalweg.createDurableSiphon("transcript-archive", {
+        streams: ["voice:transcript"],
+        start: "earliest",
+      });
+      await thalweg.listDurableSiphons();
+      const delivery = await thalweg.pollDurableSiphon("transcript-archive", 10);
+      await thalweg.acknowledgeDurableSiphon(
+        "transcript-archive",
+        delivery.deliveryId!,
+      );
+    } finally {
+      await thalweg.close();
+    }
+
+    expect(seen.map((message) => message.action)).toEqual([
+      "durable_siphon_create",
+      "durable_siphon_list",
+      "durable_siphon_poll",
+      "durable_siphon_ack",
+    ]);
+    expect(seen[0]?.payload).toEqual({
+      network: "home",
+      name: "transcript-archive",
+      streams: ["voice:transcript"],
+      start: "earliest",
+    });
+    expect(seen[2]?.payload).toEqual({
+      network: "home",
+      name: "transcript-archive",
+      limit: 10,
+      waitMillis: 0,
+    });
+    expect(seen[3]?.payload).toEqual({
+      network: "home",
+      name: "transcript-archive",
+      deliveryId: "delivery-1",
+    });
+  });
+});
+
 describe("Thalweg network membership API", () => {
   test("maps fluent membership methods to scoped daemon actions", async () => {
     const seen: Record<string, unknown>[] = [];

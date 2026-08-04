@@ -125,6 +125,35 @@ export interface QueryOptions<Payloads extends Record<string, unknown>> {
   order?: "asc" | "desc";
 }
 
+export interface DurableSiphonInfo {
+  version: 1;
+  name: string;
+  network: string;
+  streams: string[];
+  cursor: number;
+  createdAt: string;
+  updatedAt: string;
+  pendingDeliveryId?: string;
+  pendingCount: number;
+  pendingAttempts: number;
+}
+
+export interface DurableSiphonDelivery<P = unknown> {
+  version: 1;
+  name: string;
+  network: string;
+  deliveryId?: string;
+  cursorFrom: number;
+  cursorThrough: number;
+  attempt: number;
+  events: ThalwegEvent<P>[];
+}
+
+export interface DurableSiphonOptions<Payloads extends Record<string, unknown>> {
+  streams?: (keyof Payloads)[];
+  start?: "earliest" | "latest";
+}
+
 export type ThalwegEvent<P extends unknown> = Omit<
   DaemonEvent<P>,
   "payload"
@@ -396,6 +425,46 @@ export class Thalweg<
         order: opts.order,
       },
     );
+  }
+
+  async createDurableSiphon(
+    name: string,
+    options: DurableSiphonOptions<Payloads> = {},
+  ): Promise<DurableSiphonInfo> {
+    return this.client.request<DurableSiphonInfo>("durable_siphon_create", {
+      network: this.config.network,
+      name,
+      streams: options.streams?.map(String) ?? [],
+      start: options.start ?? "earliest",
+    });
+  }
+
+  async listDurableSiphons(network = this.config.network): Promise<DurableSiphonInfo[]> {
+    return this.client.request<DurableSiphonInfo[]>("durable_siphon_list", {
+      network,
+    });
+  }
+
+  async pollDurableSiphon(
+    name: string,
+    limit = 25,
+    waitMillis = 0,
+  ): Promise<DurableSiphonDelivery<Payloads[keyof Payloads]>> {
+    return this.client.request<DurableSiphonDelivery<Payloads[keyof Payloads]>>(
+      "durable_siphon_poll",
+      { network: this.config.network, name, limit, waitMillis },
+    );
+  }
+
+  async acknowledgeDurableSiphon(
+    name: string,
+    deliveryId: string,
+  ): Promise<DurableSiphonInfo> {
+    return this.client.request<DurableSiphonInfo>("durable_siphon_ack", {
+      network: this.config.network,
+      name,
+      deliveryId,
+    });
   }
 
   async networkStatus(): Promise<NetworkStatus> {

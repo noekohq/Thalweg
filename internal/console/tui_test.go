@@ -19,7 +19,7 @@ func TestTUIViewUsesSharedSnapshotSections(t *testing.T) {
 				AddressGroups: map[string][]string{
 					"lan": {"/ip4/192.168.1.2/tcp/42422/p2p/peer"},
 				},
-				DaemonVersion: "0.1.0-dev", ProtocolVersion: 1, StorageSchemaVersion: 3, MeshProtocolVersion: 1,
+				DaemonVersion: "0.1.0-dev", ProtocolVersion: 1, StorageSchemaVersion: 4, MeshProtocolVersion: 1,
 			},
 			Networks: []Network{{Name: "home", ID: "home-id"}, {Name: "work", ID: "work-id"}},
 			Streams:  []StreamSummary{{Name: "voice:note", EventCount: 1, LatestAt: "2026-07-30T17:00:00Z"}},

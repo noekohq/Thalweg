@@ -86,6 +86,8 @@ Prototype limitations:
 - Subscription registration has no replay boundary and can miss history.
 - There is no abort-signal cancellation, reconnect, or resubscription.
 - Subscription callbacks have no durable backpressure or replay semantics.
+- Low-level typed durable create/list/poll/ack operations are implemented, but
+  are not yet compiled from the fluent builder or run as a managed worker loop.
 - Query return types do not narrow to the requested streams.
 - Package exports and supported Node/Bun versions are not explicit.
 - Peer topology and synchronization progress do not have daemon read models yet.
@@ -158,8 +160,9 @@ Definition of done:
 
 - Make `tail(duration)` perform historical replay and transition to live events
   without a gap.
-- Compile durable builder state into a versioned daemon-side siphon definition.
-- Add durable names, cursors, acknowledgements, and cancellation.
+- [x] Expose versioned daemon-side durable definitions through typed methods.
+- [x] Add durable names, receipt cursors, acknowledgements, and restart retry;
+  cancellation and worker leases remain.
 - Add retry, timeout, concurrency, and backpressure configuration.
 - Expose execution ID, attempt, input lineage, and processor version in context.
 - Automatically attach causal lineage to `ctx.ingest()` derived events.

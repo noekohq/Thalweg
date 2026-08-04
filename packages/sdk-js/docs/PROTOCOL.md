@@ -65,6 +65,8 @@ The public `Thalweg` class also wraps:
   `decideEnrollment()`.
 - `enrollment_discover` / `enrollment_join` as `discoverEnrollments()` and
   `requestEnrollment()`.
+- `durable_siphon_create`, `durable_siphon_list`, `durable_siphon_poll`, and
+  `durable_siphon_ack` as the corresponding typed durable-siphon methods.
 
 Network-list results are redacted. Create and invite results contain bearer
 credentials and should be treated as secret. The invite result carries

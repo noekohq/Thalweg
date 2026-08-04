@@ -167,6 +167,67 @@ Payload:
 
 Returns `{"removed":true}` even if the identifier was not present.
 
+### Durable siphon actions
+
+Durable siphons are named, local, at-least-once consumers. They use a persisted
+daemon-local receipt cursor, so historical replay transitions to newly stored
+local or replicated events without a registration gap.
+
+Create a definition idempotently with `durable_siphon_create`:
+
+```json
+{
+  "network":"personal",
+  "name":"transcript-archive",
+  "streams":["voice:transcript"],
+  "start":"earliest"
+}
+```
+
+`start` may be `earliest` (the default) or `latest`. An empty stream list means
+all streams. Recreating the same network/name/streams returns the existing
+definition; changing streams under an existing name is rejected. The response
+contains definition version `1`, the acknowledged numeric cursor, timestamps,
+and pending-delivery summary.
+
+Inspect definitions using `durable_siphon_list` with an optional network:
+
+```json
+{"network":"personal"}
+```
+
+Poll one batch with `durable_siphon_poll`:
+
+```json
+{"network":"personal","name":"transcript-archive","limit":25,"waitMillis":20000}
+```
+
+The limit must be between 1 and 100. `waitMillis` may block for up to 25 seconds
+until a matching event is stored, avoiding a busy polling loop while retaining
+a bounded local request. A non-empty response contains a stable
+`deliveryId`, `cursorFrom`, `cursorThrough`, `attempt`, and immutable `events`.
+Polling again before acknowledgement returns the same batch and increments its
+persisted attempt count, including after daemon restart. An empty delivery has
+no `deliveryId`, an empty `events` array, and equal cursor bounds.
+
+After the destination has durably processed the entire batch, acknowledge its
+exact identity with `durable_siphon_ack`:
+
+```json
+{
+  "network":"personal",
+  "name":"transcript-archive",
+  "deliveryId":"delivery_..."
+}
+```
+
+Acknowledgement atomically advances the definition cursor through that batch
+and clears it. Missing, stale, or mismatched delivery IDs are rejected. A
+processor crash before acknowledgement therefore causes replay; integrations
+must make side effects idempotent. This first contract has one outstanding
+batch per named siphon and no leases, multi-worker claims, dead-letter policy,
+time windows, or watermarks yet.
+
 ### `daemon_shutdown`
 
 Payload may be `{}`. Returns:
@@ -197,7 +258,7 @@ Payload may be `{}`. Returns:
   },
   "daemonVersion": "0.1.0-dev",
   "protocolVersion": 1,
-  "storageSchemaVersion": 3,
+  "storageSchemaVersion": 4,
   "meshProtocolVersion": 1,
   "membershipFileVersion": 1
 }

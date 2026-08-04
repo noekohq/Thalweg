@@ -437,8 +437,35 @@ run ID, origin, sequence, total, message, and timestamp. Event IDs are derived
 from the run, origin, and sequence. Repeating with the printed `--run-id` is
 therefore an idempotent retry rather than a second batch.
 
-After automatic or explicit peer synchronization, verify the replica on the
-other device:
+For a live propagation check, start a blocking watcher on the receiving device
+before publishing the run:
+
+```bash
+thalweg lab watch \
+  --network home \
+  --run-id smoke-20260803-1 \
+  --origin ORIGIN_DEVICE_ID \
+  --expected 3 \
+  --wait 2m
+```
+
+Then publish on the origin with the same run ID:
+
+```bash
+thalweg lab publish \
+  --network home \
+  --run-id smoke-20260803-1 \
+  --count 3
+```
+
+`lab watch` polls the receiving daemon until the complete run is locally
+visible or the deadline expires. Its report includes the observer device,
+attempt count, wait time, expected and observed sequences, missing sequences,
+duplicates, unexpected sequences, and a sender-timestamp-to-observation upper
+bound. The latter assumes the two device clocks are reasonably aligned; HLCs
+provide ordering guardrails, not precision clock synchronization.
+
+To take an immediate snapshot rather than wait, run this on the other device:
 
 ```bash
 thalweg lab verify \
@@ -448,8 +475,9 @@ thalweg lab verify \
   --expected 3
 ```
 
-The JSON result reports seen and missing sequences. An incomplete run exits
-non-zero, making it suitable for shell scripts. The default stream is
+The JSON result reports the same convergence and integrity fields. An
+incomplete or structurally invalid run exits non-zero, making it suitable for
+shell scripts. The default stream is
 `system:mesh_test`; both commands accept `--stream` when testing another
 namespace.
 
@@ -462,6 +490,48 @@ thalweg console web --network home --lab
 That session shows the Event Workbench and enables two session-token-protected,
 loopback-only write endpoints. Starting Console without `--lab` does not expose
 lab operations and remains read-only.
+
+## Durable siphons
+
+Create a named local consumer that replays existing transcript and note events:
+
+```bash
+thalweg siphon create \
+  --network home \
+  --streams voice:transcript,user:note \
+  --start earliest \
+  transcript-archive
+```
+
+Poll a bounded batch:
+
+```bash
+thalweg siphon poll --network home --limit 25 --wait 20s transcript-archive
+```
+
+The result includes a stable `deliveryId`, attempt count, cursor bounds, and
+events. Process the entire batch durably, then acknowledge exactly that batch:
+
+```bash
+thalweg siphon ack \
+  --network home \
+  --delivery DELIVERY_ID \
+  transcript-archive
+```
+
+If the processor or daemon stops before acknowledgement, the next poll returns
+the same batch and increments its attempt count. Side effects must therefore be
+idempotent. `--start latest` begins after events already stored on this daemon;
+`earliest` is the default. Inspect definitions and pending work with:
+
+```bash
+thalweg siphon list --network home
+```
+
+This first durable slice is pull-based with one outstanding batch per name.
+`--wait` provides a bounded local wakeup rather than a permanent push stream.
+It does not yet provide multi-worker leases, dead letters, windows, or
+watermarks.
 
 ## Configuration precedence
 
@@ -507,7 +577,12 @@ thalweg peer dial --network NAME --address MULTIADDR
 thalweg peer sync --network NAME --address MULTIADDR
 thalweg peer list [--network NAME]
 thalweg lab publish --network NAME [--stream NAME] [--count 3] [--data JSON]
-thalweg lab verify --network NAME --run-id ID [--origin DEVICE_ID] [--expected 3]
+thalweg lab verify --network NAME --run-id ID [--origin DEVICE_ID] [--expected 3] [--wait DURATION]
+thalweg lab watch --network NAME --run-id ID [--origin DEVICE_ID] [--expected 3] [--wait 2m]
+thalweg siphon create --network NAME [--streams A,B] [--start earliest] SIPHON_NAME
+thalweg siphon list [--network NAME]
+thalweg siphon poll --network NAME [--limit 25] [--wait 20s] SIPHON_NAME
+thalweg siphon ack --network NAME --delivery DELIVERY_ID SIPHON_NAME
 thalweg version
 ```
 

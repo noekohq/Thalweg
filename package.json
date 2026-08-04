@@ -9,8 +9,8 @@
   "scripts": {
     "build:js": "bun --filter '!./' --filter './apps/*' --filter './packages/*' build",
     "check:js": "bun --filter '!./' --filter './apps/*' --filter './packages/*' check",
-    "test:js": "bun --cwd packages/sdk-js test",
-    "demo:velotic": "bun --cwd packages/sdk-js run demo:velotic",
-    "dev:console": "bun --cwd apps/console-web run dev"
+    "test:js": "bun --filter '!./' --filter './apps/*' --filter './packages/*' test",
+    "demo:velotic": "bun run --cwd packages/sdk-js demo:velotic",
+    "dev:console": "bun run --cwd apps/console-web dev"
   }
 }

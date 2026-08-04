@@ -169,9 +169,10 @@ func (m tuiModel) View() string {
 	addresses := renderAddresses(m.snapshot, contentWidth)
 	peers := renderPeers(m.snapshot, contentWidth)
 	streams := renderStreams(m.snapshot, contentWidth)
+	siphons := renderDurableSiphons(m.snapshot, contentWidth)
 	events := renderEvents(m.snapshot, contentWidth, m.height)
 	warnings := renderWarnings(m.snapshot, contentWidth)
-	bodySections = append(bodySections, overview, addresses, peers, streams, events)
+	bodySections = append(bodySections, overview, addresses, peers, streams, siphons, events)
 	if warnings != "" {
 		bodySections = append(bodySections, warnings)
 	}
@@ -270,6 +271,26 @@ func renderStreams(snapshot Snapshot, width int) string {
 			lines = append(lines, fmt.Sprintf("%-30s %4d events  latest %s",
 				truncate(stream.Name, 30), stream.EventCount, compactTime(stream.LatestAt)))
 		}
+	}
+	return tuiPanel.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func renderDurableSiphons(snapshot Snapshot, width int) string {
+	lines := []string{tuiHeading.Render("Durable siphons · " + emptyFallback(snapshot.SelectedNetwork, "no network"))}
+	if len(snapshot.DurableSiphons) == 0 {
+		lines = append(lines, tuiSubtle.Render("No durable siphons registered for this network."))
+	}
+	for _, siphon := range snapshot.DurableSiphons {
+		streams := "all streams"
+		if len(siphon.Streams) > 0 {
+			streams = strings.Join(siphon.Streams, ",")
+		}
+		pending := "idle"
+		if siphon.PendingDeliveryID != "" {
+			pending = fmt.Sprintf("%d pending · attempt %d", siphon.PendingCount, siphon.PendingAttempts)
+		}
+		lines = append(lines, fmt.Sprintf("%-22s cursor %-8d %-24s %s",
+			truncate(siphon.Name, 22), siphon.Cursor, truncate(pending, 24), truncate(streams, width-65)))
 	}
 	return tuiPanel.Width(width).Render(strings.Join(lines, "\n"))
 }

@@ -114,7 +114,7 @@ the immutable resolution event carries the decision across the mesh.
 
 See `docs/CONFLICTS.md` for the operator flow and live-subscription caveats.
 
-## Current Badger Key
+## Current Badger Keys
 
 ```text
 event-v3:{networkB64}:{streamB64}:{occurredAt}:{counter}:{deviceIdB64}:{eventIdB64}
@@ -140,6 +140,32 @@ mismatched envelope is treated as storage corruption rather than silently
 recreating history. Synchronization inventory pages walk this index directly
 instead of repeatedly querying and sorting the full network timeline.
 
+Durable local consumers use a separate receipt-order index:
+
+```text
+event-arrival-v1:{networkB64}:{localSequence20} = {primaryEventKey}
+meta:event-arrival-sequence = {latestLocalSequence}
+```
+
+`localSequence` is a daemon-local, monotonically increasing receipt ordinal. It
+is allocated in the same Badger transaction as a newly stored local or
+replicated event. It is deliberately not part of the immutable event envelope,
+does not replicate, and does not replace event-time/HLC ordering. Its only job
+is to give durable consumers a gap-free cursor even when a late replicated
+event belongs earlier in the chronological timeline.
+
+Versioned durable siphon definitions and their acknowledged cursor live under:
+
+```text
+durable-siphon-v1:{networkB64}:{nameB64} = {definition JSON}
+```
+
+A definition may contain one persisted outstanding delivery. Until that
+delivery is acknowledged, polling returns the same immutable event references
+with an incremented attempt count. Acknowledgement advances the cursor through
+the batch atomically. This is local at-least-once delivery; it does not claim
+distributed exactly-once execution.
+
 Peer addresses use:
 
 ```text
@@ -149,7 +175,7 @@ peer:{peerId}
 The current storage compatibility marker is:
 
 ```text
-meta:storage-schema-version = 3
+meta:storage-schema-version = 4
 meta:hlc-state = {"physical":"2026-07-30T19:00:00.000000000Z","logical":3}
 ```
 
@@ -162,7 +188,9 @@ event-conflict-v1:{networkB64}:{eventIdB64}:{remoteDigest} = observation JSON
 The daemon treats prototype databases without a marker as schema `1`, migrates
 them to schema `2` by deriving the greatest stored ingestion timestamp, then
 migrates to schema `3` by normalizing event timestamps, replacing legacy keys
-with collision-safe base64url keys, and building the event-ID index. Legacy
+with collision-safe base64url keys, and building the event-ID index. Schema `4`
+backfills the daemon-local receipt-order index in deterministic chronological
+order, then assigns new receipt ordinals transactionally at ingestion. Legacy
 event-ID collisions stop migration with an actionable error. The daemon refuses
 to open a database advertising a newer unsupported version. Future key changes
 require sequential explicit migrations rather than silently reinterpreting

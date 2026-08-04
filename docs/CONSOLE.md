@@ -39,8 +39,9 @@ Browser GUI ────┘
 - `thalweg console` or `thalweg console tui` launches the terminal interface.
 - `thalweg console web` launches the local browser sidecar.
 - Both show daemon availability, identity, versions, memberships, addresses,
-  remembered peer health, recent-window stream summaries, events, feature
-  support, and explicit prototype limitations.
+  remembered peer health, recent-window stream summaries, durable siphon
+  cursors/pending work, events, feature support, and explicit prototype
+  limitations.
 - The TUI refreshes automatically, retains a fixed node/network header, scrolls
   with `j`/`k`, and changes networks with left/right.
 - The browser sidecar binds only to loopback, generates a randomized session
@@ -55,8 +56,8 @@ Browser GUI ────┘
   are compiled into the Go binary and do not depend on a runtime CDN.
 
 The browser source lives in `apps/console-web`. After editing it, run
-`bun --cwd apps/console-web run check` and
-`bun --cwd apps/console-web run build`; the build writes the embedded
+`bun run --cwd apps/console-web check` and
+`bun run --cwd apps/console-web build`; the build writes the embedded
 production assets to `internal/console/web/assets`.
 
 The browser source and SDK are independent workspaces in the monorepo while the

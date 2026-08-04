@@ -49,7 +49,7 @@ Implemented:
   event/index storage, HLC merge, and local live delivery.
 - Bounded bidirectional inventory synchronization over an authenticated
   network-scoped mesh stream.
-- Persisted storage schema version `3`, sequential schema-1→2→3 migrations, and
+- Persisted storage schema version `4`, sequential schema-1→2→3→4 migrations, and
   incompatible-version rejection.
 - Immutable event envelopes with `occurredAt`, `insertedAt`, and
   `propagatedAt`.
@@ -77,6 +77,8 @@ Implemented:
   explicit mismatch rejection.
 - Event ingestion and query actions.
 - Future-only in-memory siphon registration.
+- Named durable siphon definitions with a receipt-order cursor, historical
+  replay, one persisted outstanding batch, acknowledgement, and restart retry.
 - Subscription cleanup when a socket disconnects.
 - Network status, network leave, peer-health inspection, and manual peer
   dialing actions.
@@ -103,8 +105,10 @@ Prototype limitations:
 - Local request lines have a 1 MiB limit and errors include stable codes and
   retryability hints. Handlers still lack per-action server-side deadlines and
   feature negotiation.
-- Subscription delivery uses bounded per-client queues and disconnects slow
-  consumers; durable acknowledgement and replay are not implemented.
+- Connection-scoped subscription delivery uses bounded per-client queues and
+  disconnects slow consumers. Durable pull consumers now provide bounded
+  acknowledged batches, but leases, dead letters, and long-poll wakeups are not
+  implemented.
 - Socket integration coverage currently exercises lifecycle and network status,
   but not every action.
 
@@ -153,11 +157,17 @@ Implemented across the daemon and `packages/sdk-js`:
 - One-shot buffered interval callbacks.
 - Derived events can be ingested from a callback.
 
+Implemented foundation:
+
+- Versioned named durable siphon definitions and local receipt-order cursors.
+- Gap-free historical-to-new-arrival polling for local and replicated events.
+- Persisted single-batch acknowledgement and at-least-once restart retry.
+- CLI and typed SDK create/list/poll/ack operations.
+
 Not implemented:
 
-- Historical replay followed atomically by live delivery.
-- Durable siphon definitions or cursors.
-- Acknowledgement, retry, backpressure, or dead-letter behavior.
+- Blocking live delivery or daemon-pushed durable subscriptions.
+- Multi-worker claims, leases, timeouts, dead letters, or retry schedules.
 - Execution claims, leases, failover, or concurrency control.
 - Recurring windows and scheduling.
 - Dirty-window detection and replay after late data.
@@ -191,13 +201,13 @@ Definition of done:
 - [x] Normalize accepted timestamps to fixed-width canonical UTC RFC3339Nano.
 - [x] Define network-wide event identity and idempotent duplicate handling.
 - [x] Add and migrate a network/event-ID secondary index.
-- [x] Persist and enforce storage schema version `3`.
+- [x] Persist and enforce storage schema version `4`.
 - [x] Advertise daemon, local protocol, and storage versions in network status.
 - [x] Carry protocol version `1` on local messages and reject explicit
   mismatches.
 - Add handshake/feature negotiation and remove the absent-version legacy
   fallback in a future breaking protocol.
-- [x] Add sequential forward migrations for schemas 1→2→3.
+- [x] Add sequential forward migrations for schemas 1→2→3→4.
 - [x] Split construction, start, shutdown, and resource ownership into testable
   lifecycle operations.
 - [x] Add explicit Unix socket permissions and owned-socket safety.
@@ -308,8 +318,9 @@ reactive computations.
 
 Definition of done:
 
-- Store versioned siphon definitions and durable consumer cursors.
-- Support historical replay followed by live delivery without an event gap.
+- [x] Store versioned siphon definitions and durable consumer cursors.
+- [x] Support historical replay followed by new-arrival polling without an
+  event gap; blocking live wakeups remain.
 - Define acknowledgement, retry, timeout, cancellation, and backpressure
   semantics.
 - Define per-source watermarks and allowed lateness so time-window processors
@@ -381,9 +392,9 @@ development harness. Their detailed product and security specification lives in
   explicitly enabled browser Event Workbench.
 - [x] Verify run/origin sequence coverage on a local replica with scriptable
   pass/fail output.
-- Guide online, offline, reconnect, restart, and isolation scenarios.
-- Report expected, seen, missing, and duplicated event IDs.
-- Export comparable test reports from both devices.
+- [x] Guide online, offline, reconnect, restart, and isolation scenarios.
+- [x] Report expected, seen, missing, duplicated, and unexpected sequences.
+- [x] Export comparable JSON test reports from both devices.
 
 ### Console 1: Read-Only Mesh Dashboard
 

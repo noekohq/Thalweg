@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 
 	"github.com/dgraph-io/badger/v4"
@@ -13,7 +14,7 @@ import (
 const (
 	daemonVersion               = "0.1.0-dev"
 	currentLocalProtocolVersion = ipc.ProtocolVersion
-	currentStorageSchemaVersion = 3
+	currentStorageSchemaVersion = 4
 	storageSchemaVersionKey     = "meta:storage-schema-version"
 )
 
@@ -53,11 +54,62 @@ func ensureStorageSchema(db *badger.DB) error {
 				return fmt.Errorf("migrate storage schema 2 to 3: %w", err)
 			}
 			storedVersion = 3
+		case 3:
+			if err := migrateStorageV3ToV4(db); err != nil {
+				return fmt.Errorf("migrate storage schema 3 to 4: %w", err)
+			}
+			storedVersion = 4
 		default:
 			return fmt.Errorf("no migration from storage schema version %d", storedVersion)
 		}
 	}
 	return nil
+}
+
+func migrateStorageV3ToV4(db *badger.DB) error {
+	type indexedEvent struct {
+		primaryKey string
+		orderKey   string
+		network    string
+	}
+	return db.Update(func(txn *badger.Txn) error {
+		events := make([]indexedEvent, 0)
+		options := badger.DefaultIteratorOptions
+		options.PrefetchValues = true
+		it := txn.NewIterator(options)
+		prefix := []byte("event-v3:")
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			var event ThalwegEvent
+			if err := it.Item().Value(func(value []byte) error {
+				return json.Unmarshal(value, &event)
+			}); err != nil {
+				it.Close()
+				return fmt.Errorf("decode event during arrival-index migration: %w", err)
+			}
+			events = append(events, indexedEvent{
+				primaryKey: string(it.Item().KeyCopy(nil)),
+				orderKey:   chronologicalKey(event),
+				network:    event.Network,
+			})
+		}
+		it.Close()
+		sort.Slice(events, func(i, j int) bool {
+			if events[i].orderKey == events[j].orderKey {
+				return events[i].primaryKey < events[j].primaryKey
+			}
+			return events[i].orderKey < events[j].orderKey
+		})
+		for index, event := range events {
+			sequence := uint64(index + 1)
+			if err := txn.Set([]byte(arrivalIndexKey(event.network, sequence)), []byte(event.primaryKey)); err != nil {
+				return fmt.Errorf("write arrival index: %w", err)
+			}
+		}
+		if err := txn.Set([]byte(arrivalSequenceKey), []byte(strconv.FormatUint(uint64(len(events)), 10))); err != nil {
+			return fmt.Errorf("write arrival sequence: %w", err)
+		}
+		return txn.Set([]byte(storageSchemaVersionKey), []byte("4"))
+	})
 }
 
 func readStorageSchemaVersion(db *badger.DB) (int, bool, error) {

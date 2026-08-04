@@ -188,3 +188,70 @@ func TestSchemaThreeMigrationRejectsLegacyEventIDCollision(t *testing.T) {
 		t.Fatalf("unexpected migration error: %v", err)
 	}
 }
+
+func TestSchemaFourMigrationBackfillsDeterministicArrivalIndex(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "storage", "badger")
+	db, err := badger.Open(badger.DefaultOptions(dbPath).WithLogger(nil))
+	if err != nil {
+		t.Fatalf("open badger: %v", err)
+	}
+	events := []ThalwegEvent{
+		{ID: "later", Network: "home", Stream: "user:note", OccurredAt: "2026-08-03T12:00:02.000000000Z", InsertedAt: "2026-08-03T12:00:02.000000000Z", PropagatedAt: "2026-08-03T12:00:02.000000000Z", DeviceID: "device-a", Payload: json.RawMessage(`{}`)},
+		{ID: "earlier", Network: "home", Stream: "user:note", OccurredAt: "2026-08-03T12:00:01.000000000Z", InsertedAt: "2026-08-03T12:00:01.000000000Z", PropagatedAt: "2026-08-03T12:00:01.000000000Z", DeviceID: "device-a", Payload: json.RawMessage(`{}`)},
+	}
+	if err := db.Update(func(txn *badger.Txn) error {
+		if err := txn.Set([]byte(storageSchemaVersionKey), []byte("3")); err != nil {
+			return err
+		}
+		if err := setHLCState(txn, hlcTimestamp{Physical: "2026-08-03T12:00:02.000000000Z"}); err != nil {
+			return err
+		}
+		for _, event := range events {
+			value, err := json.Marshal(event)
+			if err != nil {
+				return err
+			}
+			primary := eventKey(event)
+			if err := txn.Set([]byte(primary), value); err != nil {
+				return err
+			}
+			if err := txn.Set([]byte(eventIDKey(event.Network, event.ID)), []byte(primary)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("seed schema three: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close seeded badger: %v", err)
+	}
+
+	d, err := New(filepath.Join(root, "daemon.sock"), dbPath)
+	if err != nil {
+		t.Fatalf("migrate schema four: %v", err)
+	}
+	defer d.Close()
+	if err := d.store.View(func(txn *badger.Txn) error {
+		sequence, err := readArrivalSequence(txn)
+		if err != nil {
+			return err
+		}
+		if sequence != 2 {
+			t.Fatalf("arrival sequence = %d, want 2", sequence)
+		}
+		first, err := txn.Get([]byte(arrivalIndexKey("home", 1)))
+		if err != nil {
+			return err
+		}
+		return first.Value(func(value []byte) error {
+			if string(value) != eventKey(events[1]) {
+				t.Fatalf("first arrival points to %q, want earlier event", value)
+			}
+			return nil
+		})
+	}); err != nil {
+		t.Fatalf("inspect arrival migration: %v", err)
+	}
+}

@@ -60,6 +60,8 @@ func runCLI(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = runPeer(args[1:], stdout, stderr)
 	case "lab":
 		err = runLab(args[1:], stdout, stderr)
+	case "siphon":
+		err = runSiphon(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n", args[0])
 		printUsage(stderr)
@@ -105,7 +107,12 @@ Usage:
   thalweg peer sync --network NAME --address MULTIADDR
   thalweg peer list [--network NAME]
   thalweg lab publish --network NAME [--stream NAME] [--count 3] [--data JSON]
-  thalweg lab verify --network NAME --run-id ID [--origin DEVICE_ID] [--expected 3]
+  thalweg lab verify --network NAME --run-id ID [--origin DEVICE_ID] [--expected 3] [--wait 10s]
+  thalweg lab watch --network NAME --run-id ID [--origin DEVICE_ID] [--expected 3]
+  thalweg siphon create --network NAME [--streams A,B] [--start earliest] SIPHON_NAME
+  thalweg siphon list [--network NAME]
+  thalweg siphon poll --network NAME [--limit 25] [--wait 20s] SIPHON_NAME
+  thalweg siphon ack --network NAME --delivery DELIVERY_ID SIPHON_NAME
   thalweg join [--address MULTIADDR] [--debug]
   thalweg version
 

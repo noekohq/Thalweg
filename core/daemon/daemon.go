@@ -101,10 +101,13 @@ type Daemon struct {
 	clientWG      sync.WaitGroup
 	backgroundWG  sync.WaitGroup
 
-	deviceID string
-	ingestMu sync.Mutex
-	hlc      *hybridLogicalClock
-	now      func() time.Time
+	deviceID      string
+	ingestMu      sync.Mutex
+	durableMu     sync.Mutex
+	durableWakeMu sync.Mutex
+	durableWake   chan struct{}
+	hlc           *hybridLogicalClock
+	now           func() time.Time
 
 	subMu         sync.RWMutex
 	subscriptions map[string]*subscription
@@ -226,6 +229,7 @@ func NewWithConfig(config Config) (*Daemon, error) {
 		now:                time.Now,
 		clients:            make(map[net.Conn]struct{}),
 		subscriptions:      make(map[string]*subscription),
+		durableWake:        make(chan struct{}),
 		enrollmentOffers:   make(map[string]enrollmentOffer),
 		enrollmentRequests: make(map[string]*pendingEnrollment),
 		discoveredPeers:    make(map[peer.ID]peer.AddrInfo),
@@ -710,6 +714,59 @@ func (d *Daemon) registerRoutes() {
 		return map[string]bool{"removed": true}, nil
 	})
 
+	d.Register("durable_siphon_create", func(_ *clientConn, payload json.RawMessage) (any, error) {
+		var args struct {
+			Network string   `json:"network"`
+			Name    string   `json:"name"`
+			Streams []string `json:"streams"`
+			Start   string   `json:"start"`
+		}
+		if err := json.Unmarshal(payload, &args); err != nil {
+			return nil, err
+		}
+		return d.createDurableSiphon(args.Network, args.Name, args.Streams, args.Start)
+	})
+
+	d.Register("durable_siphon_list", func(_ *clientConn, payload json.RawMessage) (any, error) {
+		var args struct {
+			Network string `json:"network"`
+		}
+		if len(payload) > 0 {
+			if err := json.Unmarshal(payload, &args); err != nil {
+				return nil, err
+			}
+		}
+		return d.listDurableSiphons(args.Network)
+	})
+
+	d.Register("durable_siphon_poll", func(_ *clientConn, payload json.RawMessage) (any, error) {
+		var args struct {
+			Network    string `json:"network"`
+			Name       string `json:"name"`
+			Limit      int    `json:"limit"`
+			WaitMillis int    `json:"waitMillis"`
+		}
+		if err := json.Unmarshal(payload, &args); err != nil {
+			return nil, err
+		}
+		if args.WaitMillis < 0 || args.WaitMillis > 25_000 {
+			return nil, fmt.Errorf("waitMillis must be between 0 and 25000")
+		}
+		return d.waitForDurableSiphon(args.Network, args.Name, args.Limit, time.Duration(args.WaitMillis)*time.Millisecond)
+	})
+
+	d.Register("durable_siphon_ack", func(_ *clientConn, payload json.RawMessage) (any, error) {
+		var args struct {
+			Network    string `json:"network"`
+			Name       string `json:"name"`
+			DeliveryID string `json:"deliveryId"`
+		}
+		if err := json.Unmarshal(payload, &args); err != nil {
+			return nil, err
+		}
+		return d.acknowledgeDurableSiphon(args.Network, args.Name, args.DeliveryID)
+	})
+
 	d.Register("p2p_dial", func(_ *clientConn, payload json.RawMessage) (any, error) {
 		var args struct {
 			TargetAddr string `json:"target_addr"`
@@ -973,6 +1030,9 @@ func (d *Daemon) ingestInternal(networkName, stream, occurredAt, eventID string,
 		if err := txn.Set([]byte(eventIDKey(networkName, eventID)), []byte(primaryKey)); err != nil {
 			return err
 		}
+		if err := appendArrivalIndex(txn, event, primaryKey); err != nil {
+			return err
+		}
 		if err := setHLCState(txn, nextClockState); err != nil {
 			return err
 		}
@@ -986,6 +1046,7 @@ func (d *Daemon) ingestInternal(networkName, stream, occurredAt, eventID string,
 	if created {
 		d.hlc.commit(nextClockState)
 		d.broadcast(event)
+		d.signalDurableSiphons()
 		d.signalMeshSync(networkName)
 	}
 	return event, nil
@@ -1040,6 +1101,9 @@ func (d *Daemon) ingestReplicated(incoming ThalwegEvent) (ThalwegEvent, bool, er
 		if err := txn.Set([]byte(eventIDKey(event.Network, event.ID)), []byte(primaryKey)); err != nil {
 			return err
 		}
+		if err := appendArrivalIndex(txn, event, primaryKey); err != nil {
+			return err
+		}
 		if err := setHLCState(txn, nextClockState); err != nil {
 			return err
 		}
@@ -1058,6 +1122,7 @@ func (d *Daemon) ingestReplicated(incoming ThalwegEvent) (ThalwegEvent, bool, er
 
 	if created {
 		d.broadcast(event)
+		d.signalDurableSiphons()
 	}
 	if isResolution {
 		if _, _, err := d.materializeConflictVariant(event.Network, resolution.EventID); err != nil {

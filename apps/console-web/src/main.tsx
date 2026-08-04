@@ -69,6 +69,17 @@ type Feature = {
   detail: string;
 };
 
+type DurableSiphon = {
+  name: string;
+  network: string;
+  streams: string[];
+  cursor: number;
+  updatedAt?: string;
+  pendingDeliveryId?: string;
+  pendingCount: number;
+  pendingAttempts: number;
+};
+
 type Snapshot = {
   capturedAt: string;
   state: ConsoleState;
@@ -82,6 +93,7 @@ type Snapshot = {
   };
   networks: Network[];
   peers: MeshPeer[];
+  durableSiphons: DurableSiphon[];
   selectedNetwork?: string;
   events: Event[];
   streams: StreamSummary[];
@@ -101,12 +113,21 @@ type LabManifest = {
 };
 
 type LabVerification = {
+  version: number;
   runId: string;
   originDeviceId?: string;
+  observerDeviceId: string;
   expected: number;
   seen: number;
   sequences: number[];
   missing: number[];
+  duplicates: number[];
+  unexpected: number[];
+  publishedAt?: string;
+  checkedAt: string;
+  observedWithinMillis?: number;
+  attempts: number;
+  waitedMillis: number;
   complete: boolean;
 };
 
@@ -528,6 +549,44 @@ function App() {
                           <Text size="xs">{peer.consecutiveFailures} failures</Text>
                           <Text c="dimmed" size="xs">{localTime(peer.nextAttemptAt)}</Text>
                         </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </ScrollArea>
+            )}
+          </Card>
+
+          <Card withBorder padding="lg">
+            <SectionTitle title="Durable siphons" detail={selectedNetwork || "network required"} />
+            {!snapshot?.durableSiphons?.length ? (
+              <Empty>No durable siphons registered for this network.</Empty>
+            ) : (
+              <ScrollArea type="auto">
+                <Table verticalSpacing="sm" miw={720}>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Name</Table.Th>
+                      <Table.Th>Streams</Table.Th>
+                      <Table.Th>Cursor</Table.Th>
+                      <Table.Th>Pending</Table.Th>
+                      <Table.Th>Updated</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {snapshot.durableSiphons.map((siphon) => (
+                      <Table.Tr key={`${siphon.network}:${siphon.name}`}>
+                        <Table.Td><Text ff="monospace" size="sm">{siphon.name}</Text></Table.Td>
+                        <Table.Td><Text ff="monospace" size="xs">{siphon.streams.length ? siphon.streams.join(", ") : "all streams"}</Text></Table.Td>
+                        <Table.Td>{siphon.cursor}</Table.Td>
+                        <Table.Td>
+                          {siphon.pendingDeliveryId ? (
+                            <Badge color="yellow" variant="light">
+                              {siphon.pendingCount} · attempt {siphon.pendingAttempts}
+                            </Badge>
+                          ) : <Badge color="green" variant="light">idle</Badge>}
+                        </Table.Td>
+                        <Table.Td>{localTime(siphon.updatedAt)}</Table.Td>
                       </Table.Tr>
                     ))}
                   </Table.Tbody>

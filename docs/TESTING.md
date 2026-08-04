@@ -1,23 +1,43 @@
 # Testing and Lima Acceptance
 
-Last exercised: 2026-07-30
+Last exercised: 2026-08-03
 
 ## Repeatable event and replication smoke tests
 
 The lab commands remove hand-authored IDs and JSON from the common two-device
-loop. On device A:
+loop. First choose a unique run ID and start the receiver on device B:
+
+```bash
+thalweg lab watch \
+  --network home \
+  --run-id smoke-20260803-1 \
+  --origin DEVICE_A_ID \
+  --expected 3 \
+  --wait 2m
+```
+
+Then publish on device A:
 
 ```bash
 thalweg lab publish \
   --network home \
+  --run-id smoke-20260803-1 \
   --count 3 \
   --data '{"scenario":"device-a-to-device-b"}'
 ```
 
-Keep the printed `runId`, `originDeviceId`, and `expected`. A connected peer
-should receive the run shortly after ingestion through the event-triggered
-sync. Use explicit `thalweg peer sync` when testing forced recovery, then run
-this on device B:
+The watch exits as soon as the connected peer receives the whole run through
+event-triggered synchronization. It reports the observer, attempts, wait time,
+expected/seen/missing sequences, duplicates, unexpected sequences, and a
+cross-device wall-clock upper bound. Save the JSON output directly when a test
+artifact is useful:
+
+```bash
+thalweg lab watch ... > device-b-online.json
+```
+
+Use `lab verify` for a non-blocking snapshot, or after an explicit
+`thalweg peer sync` when testing forced recovery:
 
 ```bash
 thalweg lab verify \
@@ -28,12 +48,33 @@ thalweg lab verify \
 ```
 
 `complete: true` and an exit status of zero mean every expected sequence exists
-on that replica. Missing sequences are printed and return a non-zero status.
+exactly once on that replica and no unexpected sequence was found. Missing or
+invalid sequence coverage is printed and returns a non-zero status.
 Use the same `--run-id` when retrying publication so event-ID idempotency is
 tested rather than creating a second run.
 
 For interactive testing, `thalweg console web --network home --lab` exposes the
 same bounded Event Workbench. The ordinary Console remains read-only.
+
+### Acceptance scenarios
+
+Run each direction by exchanging the publisher and watcher devices:
+
+1. **Online:** start `lab watch`, then `lab publish`; expect completion within
+   the interactive latency target.
+2. **Offline recovery:** stop the receiving daemon, publish, restart it, then
+   start `lab watch` for that run; expect anti-entropy recovery without
+   duplicates.
+3. **Origin restart:** publish a run, restart the publishing daemon immediately,
+   and verify the receiver still converges.
+4. **Receiver restart:** start a run while the receiver is stopped, restart it,
+   and verify convergence.
+5. **Network isolation:** publish the same run label to two different logical
+   networks with different origins, then verify each network only observes its
+   own run. Use unique run IDs if both networks share an origin device.
+
+Use a new run ID for every scenario. Reuse that ID only to deliberately test
+idempotent publication.
 
 ## Automated Verification
 
@@ -97,7 +138,7 @@ The enrollment suite covers:
 Run the SDK checks from the monorepo root:
 
 ```bash
-bun --cwd packages/sdk-js run build
+bun run --cwd packages/sdk-js build
 bun --cwd packages/sdk-js test --rerun-each 10
 ```
 
@@ -160,6 +201,14 @@ The host/VM run verified:
 - A host-only network event never appeared in the guest.
 - The guest rejected a synchronization attempt for a network it had not joined.
 - Stable configured ports allowed persisted-peer restoration.
+- A Linux guest publication woke the macOS `lab watch` verifier and converged
+  all three deterministic events with no missing, duplicate, or unexpected
+  sequences.
+
+The schema-4 durable runtime was also exercised against a disposable real
+daemon: the transcript reference worker replayed one pre-existing transcript,
+stored an idempotent derived note, acknowledged cursor `1`, and reported no
+pending batch.
 
 The VM run found and drove fixes for:
 

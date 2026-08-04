@@ -281,6 +281,49 @@ func TestPeerListCommandSupportsNetworkFilter(t *testing.T) {
 	}
 }
 
+func TestSiphonCreateCommandMapsDurableDefinition(t *testing.T) {
+	socketPath := startFakeDaemon(t, func(request ipcRequest) (any, string) {
+		if request.Action != "durable_siphon_create" {
+			t.Fatalf("action = %q, want durable_siphon_create", request.Action)
+		}
+		payload := request.Payload.(map[string]any)
+		streams := payload["streams"].([]any)
+		if payload["network"] != "home" || payload["name"] != "transcripts" || payload["start"] != "earliest" || len(streams) != 2 {
+			t.Fatalf("payload = %#v", payload)
+		}
+		return map[string]any{"name": "transcripts", "cursor": 0}, ""
+	})
+	setTestConfig(t, socketPath)
+	var stdout, stderr bytes.Buffer
+	code := runCLI([]string{
+		"siphon", "create", "--network", "home", "--streams", "voice:transcript,user:note", "transcripts",
+	}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 || !strings.Contains(stdout.String(), `"name": "transcripts"`) {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestSiphonAckCommandMapsDeliveryIdentity(t *testing.T) {
+	socketPath := startFakeDaemon(t, func(request ipcRequest) (any, string) {
+		if request.Action != "durable_siphon_ack" {
+			t.Fatalf("action = %q, want durable_siphon_ack", request.Action)
+		}
+		payload := request.Payload.(map[string]any)
+		if payload["network"] != "home" || payload["name"] != "transcripts" || payload["deliveryId"] != "delivery-1" {
+			t.Fatalf("payload = %#v", payload)
+		}
+		return map[string]any{"name": "transcripts", "cursor": 3}, ""
+	})
+	setTestConfig(t, socketPath)
+	var stdout, stderr bytes.Buffer
+	code := runCLI([]string{
+		"siphon", "ack", "--network", "home", "--delivery", "delivery-1", "transcripts",
+	}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 || !strings.Contains(stdout.String(), `"cursor": 3`) {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestNetworkLeaveRequiresConfirmationAndUsesDaemonIPC(t *testing.T) {
 	socketPath := startFakeDaemon(t, func(request ipcRequest) (any, string) {
 		if request.Action != "network_leave" {

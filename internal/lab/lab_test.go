@@ -9,8 +9,10 @@ import (
 )
 
 type fakeCaller struct {
-	deviceID string
-	events   []map[string]any
+	deviceID     string
+	events       []map[string]any
+	queryCount   int
+	visibleAfter int
 }
 
 func (f *fakeCaller) Call(_ context.Context, action string, payload, target any) error {
@@ -27,9 +29,12 @@ func (f *fakeCaller) Call(_ context.Context, action string, payload, target any)
 		encoded, _ := json.Marshal(map[string]any{"id": request["eventId"]})
 		return json.Unmarshal(encoded, target)
 	case "event_query":
+		f.queryCount++
 		envelopes := make([]map[string]any, 0, len(f.events))
-		for _, event := range f.events {
-			envelopes = append(envelopes, map[string]any{"payload": event["payload"]})
+		if f.queryCount > f.visibleAfter {
+			for _, event := range f.events {
+				envelopes = append(envelopes, map[string]any{"payload": event["payload"]})
+			}
 		}
 		encoded, _ := json.Marshal(envelopes)
 		return json.Unmarshal(encoded, target)
@@ -80,6 +85,59 @@ func TestVerifyReportsMissingSequencesAndOriginScope(t *testing.T) {
 	}
 	if result.Complete || result.Seen != 2 || !reflect.DeepEqual(result.Sequences, []int{1, 3}) || !reflect.DeepEqual(result.Missing, []int{2}) {
 		t.Fatalf("verification = %#v", result)
+	}
+}
+
+func TestVerifyReportsObserverTimingDuplicatesAndUnexpectedSequences(t *testing.T) {
+	caller := &fakeCaller{deviceID: "observer-b"}
+	sentAt := "2026-08-03T12:00:00Z"
+	for _, sequence := range []int{1, 1, 2, 4} {
+		caller.events = append(caller.events, map[string]any{"payload": testPayload{
+			Kind: "thalweg.mesh_test.v1", RunID: "run-one", OriginDeviceID: "device-a", Sequence: sequence, Total: 3, SentAt: sentAt, Data: json.RawMessage(`{}`),
+		}})
+	}
+	result, err := verifyAt(context.Background(), caller, VerifyRequest{
+		Network: "home", RunID: "run-one", OriginDeviceID: "device-a", Expected: 3,
+	}, time.Date(2026, 8, 3, 12, 0, 1, 250_000_000, time.UTC))
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if result.ObserverDeviceID != "observer-b" || result.ObservedWithinMillis == nil || *result.ObservedWithinMillis != 1250 {
+		t.Fatalf("observer report = %#v", result)
+	}
+	if result.Complete || !reflect.DeepEqual(result.Duplicates, []int{1}) || !reflect.DeepEqual(result.Unexpected, []int{4}) || !reflect.DeepEqual(result.Missing, []int{3}) {
+		t.Fatalf("verification integrity = %#v", result)
+	}
+}
+
+func TestWaitForConvergencePollsUntilEventsAreVisible(t *testing.T) {
+	caller := &fakeCaller{deviceID: "observer-b", visibleAfter: 2}
+	for _, sequence := range []int{1, 2, 3} {
+		caller.events = append(caller.events, map[string]any{"payload": testPayload{
+			Kind: "thalweg.mesh_test.v1", RunID: "run-one", OriginDeviceID: "device-a", Sequence: sequence, Total: 3, SentAt: time.Now().UTC().Format(time.RFC3339Nano), Data: json.RawMessage(`{}`),
+		}})
+	}
+	result, err := WaitForConvergence(context.Background(), caller, VerifyRequest{
+		Network: "home", RunID: "run-one", OriginDeviceID: "device-a", Expected: 3,
+	}, WaitOptions{Timeout: time.Second, PollInterval: 25 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	if !result.Complete || result.Attempts != 3 || caller.queryCount != 3 || result.WaitedMillis < 25 {
+		t.Fatalf("convergence report = %#v (queries %d)", result, caller.queryCount)
+	}
+}
+
+func TestWaitForConvergenceReturnsLastIncompleteReportAtTimeout(t *testing.T) {
+	caller := &fakeCaller{deviceID: "observer-b", visibleAfter: 100}
+	result, err := WaitForConvergence(context.Background(), caller, VerifyRequest{
+		Network: "home", RunID: "run-one", Expected: 1,
+	}, WaitOptions{Timeout: 30 * time.Millisecond, PollInterval: 25 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	if result.Complete || result.Attempts < 2 || !reflect.DeepEqual(result.Missing, []int{1}) {
+		t.Fatalf("timeout report = %#v", result)
 	}
 }
 

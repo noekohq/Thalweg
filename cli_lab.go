@@ -32,13 +32,15 @@ func (c labCaller) Call(ctx context.Context, action string, payload, target any)
 
 func runLab(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: thalweg lab [publish | verify]")
+		return fmt.Errorf("usage: thalweg lab [publish | verify | watch]")
 	}
 	switch args[0] {
 	case "publish":
 		return runLabPublish(args[1:], stdout, stderr)
 	case "verify":
-		return runLabVerify(args[1:], stdout, stderr)
+		return runLabVerify(args[1:], false, stdout, stderr)
+	case "watch":
+		return runLabVerify(args[1:], true, stdout, stderr)
 	default:
 		return fmt.Errorf("unknown lab command %q", args[0])
 	}
@@ -80,8 +82,14 @@ func runLabPublish(args []string, stdout, stderr io.Writer) error {
 	return writeFormattedJSON(stdout, manifest)
 }
 
-func runLabVerify(args []string, stdout, stderr io.Writer) error {
-	flags := flag.NewFlagSet("lab verify", flag.ContinueOnError)
+func runLabVerify(args []string, watch bool, stdout, stderr io.Writer) error {
+	commandName := "lab verify"
+	defaultWait := time.Duration(0)
+	if watch {
+		commandName = "lab watch"
+		defaultWait = 2 * time.Minute
+	}
+	flags := flag.NewFlagSet(commandName, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	socketFlag := flags.String("socket", "", "Unix socket path")
 	network := flags.String("network", "", "logical network name")
@@ -89,25 +97,34 @@ func runLabVerify(args []string, stdout, stderr io.Writer) error {
 	runID := flags.String("run-id", "", "run ID printed by lab publish")
 	origin := flags.String("origin", "", "optional origin device ID")
 	expected := flags.Int("expected", 3, "expected sequences from the selected origin")
+	wait := flags.Duration("wait", defaultWait, "wait up to this duration for convergence")
+	poll := flags.Duration("poll", 100*time.Millisecond, "verification polling interval")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return fmt.Errorf("lab verify does not accept positional arguments")
+		return fmt.Errorf("%s does not accept positional arguments", commandName)
+	}
+	if *wait < 0 || *wait > 10*time.Minute {
+		return fmt.Errorf("--wait must be between 0 and 10m")
 	}
 	socketPath, err := resolvedSocket(*socketFlag)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	requestTimeout := 45 * time.Second
+	if *wait > 0 {
+		requestTimeout = *wait + 10*time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
-	result, err := lab.Verify(ctx, labCaller{socketPath: socketPath}, lab.VerifyRequest{
+	result, err := lab.WaitForConvergence(ctx, labCaller{socketPath: socketPath}, lab.VerifyRequest{
 		Network:        *network,
 		Stream:         *stream,
 		RunID:          *runID,
 		OriginDeviceID: *origin,
 		Expected:       *expected,
-	})
+	}, lab.WaitOptions{Timeout: *wait, PollInterval: *poll})
 	if err != nil {
 		return err
 	}

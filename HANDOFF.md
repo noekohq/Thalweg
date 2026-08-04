@@ -28,7 +28,13 @@ Important entry points:
 - `internal/console`: shared read-only daemon adapter, snapshot model, Bubble
   Tea TUI, embedded browser UI, security-sensitive routing, and tests.
 - `internal/lab`: bounded deterministic test-event publication and replica
-  sequence verification shared by CLI and the opt-in browser workbench.
+  sequence verification, including blocking convergence reports, shared by CLI
+  and the opt-in browser workbench.
+- `core/daemon/durable_siphon.go`: schema-4 receipt index, named consumer
+  definitions, pending batches, bounded wakeups, acknowledgements, and restart
+  retry.
+- `../thalweg-transcript-worker`: standalone durable transcript-to-note
+  reference worker used to validate the public integration boundary.
 - `scripts/install.sh`: local source-checkout installer.
 - `docs/CLI.md`: install and two-device operator workflow.
 - `docs/ENROLLMENT.md`: discovery/enrollment state machine and limitations.
@@ -93,9 +99,10 @@ creates one `insights:summary` event, and all four print chronologically.
 - Local ingestion is serialized while advancing the persistent HLC; this may
   become a throughput bottleneck under high-volume concurrent producers.
 - Multi-stream queries sort decoded events in memory.
-- Subscriptions are future-only and in-memory. Bounded queues prevent slow
-  sockets from blocking ingestion by disconnecting consumers that fall behind;
-  acknowledgement and replay are still absent.
+- Connection-scoped subscriptions remain future-only and in-memory. Durable
+  pull siphons now provide receipt-order replay, one persisted outstanding
+  batch, bounded wakeups, acknowledgement, and restart retry. Multi-worker
+  leases, dead letters, scheduling, watermarks, and dirty windows remain.
 - Requests without `protocolVersion` are accepted as legacy version `1`; there
   is no handshake or feature-level negotiation.
 - Local errors now carry stable codes and retryability hints while retaining
@@ -137,9 +144,10 @@ creates one `insights:summary` event, and all four print chronologically.
 - Persisted peer health and last synchronization status are now exposed in both
   console frontends. Topology edges, active progress, durable lag, storage
   summaries, and processing health remain unavailable read contracts.
-- `thalweg lab publish` and `thalweg lab verify` remove the need to hand-author
-  individual smoke-test events. `thalweg console web --lab` exposes the same
-  bounded workflow; ordinary Console sessions remain read-only.
+- `thalweg lab publish`, `verify`, and `watch` remove the need to hand-author
+  individual smoke-test events and produce comparable convergence reports.
+  `thalweg console web --lab` exposes the bounded publish/verify workflow;
+  ordinary Console sessions remain read-only.
 - `data/event.proto` is reserved but currently empty; the active JSON contract
   is shared by a small internal Go IPC package and monorepo documentation.
 

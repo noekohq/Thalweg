@@ -1,9 +1,10 @@
 # Thalweg Agent Guide
 
-This monorepo contains the Go daemon and CLI, TypeScript SDK, browser Console,
-shared contracts, and client applications for Thalweg. The Go data plane owns
-local persistence, event ordering, IPC routing, subscriptions, and peer-to-peer
-replication. `packages/sdk-js` owns the typed developer API.
+This monorepo contains the Go daemon and CLI, TypeScript and Python SDKs,
+browser Console, shared contracts, and client applications for Thalweg. The Go
+data plane owns local persistence, event ordering, IPC routing, subscriptions,
+and peer-to-peer replication. `packages/sdk-js` and `packages/sdk-python` own
+their language-specific developer APIs.
 
 ## Start Here
 
@@ -35,6 +36,7 @@ This repository is authoritative for:
 It is not authoritative for:
 
 - TypeScript payload inference or the fluent builder API.
+- Python transport lifecycle, models, or async API ergonomics.
 - Catchment-specific integrations.
 - Velotic UI behavior.
 - Noeko graph schemas or long-term semantic storage.
@@ -51,7 +53,8 @@ make build
 go test ./...
 go run . spawn
 bun --cwd packages/sdk-js test
-bun --cwd apps/console-web run check
+PYTHONPATH=packages/sdk-python/src python3 -m unittest discover -s packages/sdk-python/tests -t packages/sdk-python
+bun run --cwd apps/console-web check
 ```
 
 The daemon listens on `/tmp/thalweg.sock`, writes events to `./storage/badger`,
@@ -68,7 +71,8 @@ and `thalweg daemon`; see `docs/CLI.md`.
 - Event IDs are unique within a network; equivalent retries return the original
   stored event and conflicting reuse is rejected.
 - Event identity lookups use the schema-3 `event-id-v3:` secondary index.
-- Storage schema version `3` is persisted, migrated, and checked at startup.
+- Storage schema version `4` is persisted, migrated, and checked at startup;
+  schema 4 adds the daemon-local receipt-order index used by durable siphons.
 - `(insertedAt, counter)` is the persistent HLC timestamp for event ordering.
 - Every event belongs to one logical network and one stream.
 - `occurredAt` is supplied by the producer or assigned at ingestion.
@@ -101,7 +105,8 @@ Do not describe these as implemented:
 The daemon currently has persisted identity and HLC state, authenticated
 multi-network membership, bounded bidirectional synchronization, one Badger
 database, approval-based mDNS enrollment, manual/startup peer sync, and
-bounded in-memory live subscriptions. The read-only Console has Bubble Tea and
+bounded in-memory live subscriptions, plus named durable pull siphons with
+receipt cursors and acknowledged retry. The read-only Console has Bubble Tea and
 loopback-browser frontends over one shared public-IPC observer model; peer
 health, sync state, live tail, pagination, and Mesh Lab controls remain future
 work.
@@ -115,4 +120,4 @@ work.
 - Add tests for ordering, persistence, malformed input, and restart behavior
   when changing the data plane.
 - Keep p2p protocol handling separate from trusted local IPC handlers.
-- Coordinate public contract changes with `packages/sdk-js` in the same change.
+- Coordinate public contract changes with both SDK packages in the same change.

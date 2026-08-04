@@ -5,13 +5,14 @@ immutable typed events locally, serves range queries and live subscriptions,
 and synchronizes permitted history across explicitly connected, authenticated
 devices.
 
-This monorepo contains the Go daemon and CLI, the TypeScript SDK, the browser
-Console, shared documentation, and future client applications. Go dependencies
-remain managed by Go modules; Bun workspaces manage JavaScript and TypeScript.
+This monorepo contains the Go daemon and CLI, TypeScript and Python SDKs, the
+browser Console, shared documentation, and future client applications. Go
+dependencies remain managed by Go modules; Bun workspaces manage JavaScript and
+TypeScript, and the Python SDK uses standard Python packaging.
 
 ## Develop the monorepo
 
-Install both toolchains' dependencies and run the complete verification suite:
+Install the project dependencies and run the complete verification suite:
 
 ```bash
 make bootstrap
@@ -176,7 +177,13 @@ verify it on another device:
 ```bash
 thalweg lab publish --network home --count 3 --data '{"scenario":"smoke"}'
 thalweg lab verify --network home --run-id RUN_ID --origin DEVICE_ID --expected 3
+thalweg lab watch --network home --run-id RUN_ID --origin DEVICE_ID --expected 3
 ```
+
+The standalone `thalweg-transcript-worker` sibling project is a reference
+consumer for the durable siphon API. It emits idempotent `knowledge:note`
+events and only acknowledges its batch after every transcript has a stored
+note or processor-failure outcome.
 
 The JSON manifest printed by `publish` supplies `RUN_ID` and `DEVICE_ID`.
 Alternatively, launch the explicitly writable browser workbench with
@@ -243,4 +250,5 @@ window recomputation.
 - [Agent guide](AGENTS.md)
 - [Current handoff](HANDOFF.md)
 - [TypeScript SDK](packages/sdk-js/README.md)
+- [Python SDK](packages/sdk-python/README.md)
 - [Mobile application boundary](apps/mobile/README.md)

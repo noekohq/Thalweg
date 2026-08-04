@@ -17850,6 +17850,53 @@ function df() {
 						withBorder: !0,
 						padding: "lg",
 						children: [/* @__PURE__ */ (0, V.jsx)(lf, {
+							title: "Durable siphons",
+							detail: r || "network required"
+						}), t?.durableSiphons?.length ? /* @__PURE__ */ (0, V.jsx)(Eo, {
+							type: "auto",
+							children: /* @__PURE__ */ (0, V.jsxs)($, {
+								verticalSpacing: "sm",
+								miw: 720,
+								children: [/* @__PURE__ */ (0, V.jsx)($.Thead, { children: /* @__PURE__ */ (0, V.jsxs)($.Tr, { children: [
+									/* @__PURE__ */ (0, V.jsx)($.Th, { children: "Name" }),
+									/* @__PURE__ */ (0, V.jsx)($.Th, { children: "Streams" }),
+									/* @__PURE__ */ (0, V.jsx)($.Th, { children: "Cursor" }),
+									/* @__PURE__ */ (0, V.jsx)($.Th, { children: "Pending" }),
+									/* @__PURE__ */ (0, V.jsx)($.Th, { children: "Updated" })
+								] }) }), /* @__PURE__ */ (0, V.jsx)($.Tbody, { children: t.durableSiphons.map((e) => /* @__PURE__ */ (0, V.jsxs)($.Tr, { children: [
+									/* @__PURE__ */ (0, V.jsx)($.Td, { children: /* @__PURE__ */ (0, V.jsx)(J, {
+										ff: "monospace",
+										size: "sm",
+										children: e.name
+									}) }),
+									/* @__PURE__ */ (0, V.jsx)($.Td, { children: /* @__PURE__ */ (0, V.jsx)(J, {
+										ff: "monospace",
+										size: "xs",
+										children: e.streams.length ? e.streams.join(", ") : "all streams"
+									}) }),
+									/* @__PURE__ */ (0, V.jsx)($.Td, { children: e.cursor }),
+									/* @__PURE__ */ (0, V.jsx)($.Td, { children: e.pendingDeliveryId ? /* @__PURE__ */ (0, V.jsxs)(cl, {
+										color: "yellow",
+										variant: "light",
+										children: [
+											e.pendingCount,
+											" · attempt ",
+											e.pendingAttempts
+										]
+									}) : /* @__PURE__ */ (0, V.jsx)(cl, {
+										color: "green",
+										variant: "light",
+										children: "idle"
+									}) }),
+									/* @__PURE__ */ (0, V.jsx)($.Td, { children: sf(e.updatedAt) })
+								] }, `${e.network}:${e.name}`)) })]
+							})
+						}) : /* @__PURE__ */ (0, V.jsx)(uf, { children: "No durable siphons registered for this network." })]
+					}),
+					/* @__PURE__ */ (0, V.jsxs)(wl, {
+						withBorder: !0,
+						padding: "lg",
+						children: [/* @__PURE__ */ (0, V.jsx)(lf, {
 							title: "Recent events",
 							detail: `Latest 12 · ${r || "network required"}`
 						}), te.length === 0 ? /* @__PURE__ */ (0, V.jsx)(uf, { children: "No events to display." }) : /* @__PURE__ */ (0, V.jsx)(Eo, {

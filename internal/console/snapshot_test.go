@@ -38,11 +38,12 @@ func TestSnapshotLoadsSharedConsoleState(t *testing.T) {
 	caller := &fakeCaller{responses: map[string]any{
 		"network_status": NodeStatus{
 			PeerID: "peer-local", DeviceID: "device-local", DaemonVersion: "0.1.0-dev",
-			ProtocolVersion: 1, StorageSchemaVersion: 3,
+			ProtocolVersion: 1, StorageSchemaVersion: 4,
 			AddressGroups: map[string][]string{"lan": {"/ip4/192.168.1.2/tcp/42422/p2p/peer-local"}},
 		},
-		"network_list":   []Network{{Name: "work", ID: "network-work"}, {Name: "home", ID: "network-home"}},
-		"mesh_peer_list": []MeshPeer{},
+		"network_list":        []Network{{Name: "work", ID: "network-work"}, {Name: "home", ID: "network-home"}},
+		"mesh_peer_list":      []MeshPeer{},
+		"durable_siphon_list": []DurableSiphon{{Name: "archive", Network: "home", Cursor: 3}},
 		"event_query": []Event{
 			{ID: "one", Network: "home", Stream: "voice:note", OccurredAt: "2026-07-30T17:00:00.000000000Z", DeviceID: "device-local", Payload: json.RawMessage(`{"text":"hello"}`)},
 			{ID: "two", Network: "home", Stream: "system:error", OccurredAt: "2026-07-30T17:30:00.000000000Z", DeviceID: "device-remote", Payload: json.RawMessage(`{"code":500}`)},
@@ -61,7 +62,10 @@ func TestSnapshotLoadsSharedConsoleState(t *testing.T) {
 	if len(snapshot.Streams) != 2 || snapshot.Streams[0].Name != "voice:note" || snapshot.Streams[0].EventCount != 2 {
 		t.Fatalf("stream summaries = %#v", snapshot.Streams)
 	}
-	query := caller.calls[3].payload.(map[string]any)
+	if len(snapshot.DurableSiphons) != 1 || snapshot.DurableSiphons[0].Name != "archive" {
+		t.Fatalf("durable siphons = %#v", snapshot.DurableSiphons)
+	}
+	query := caller.calls[4].payload.(map[string]any)
 	if query["network"] != "home" || query["limit"] != 25 || query["order"] != "desc" {
 		t.Fatalf("event query payload = %#v", query)
 	}
@@ -83,10 +87,11 @@ func TestSnapshotMakesDaemonFailureExplicit(t *testing.T) {
 
 func TestSnapshotFallsBackFromUnknownNetwork(t *testing.T) {
 	caller := &fakeCaller{responses: map[string]any{
-		"network_status": NodeStatus{},
-		"network_list":   []Network{{Name: "home", ID: "home-id"}},
-		"mesh_peer_list": []MeshPeer{},
-		"event_query":    []Event{},
+		"network_status":      NodeStatus{},
+		"network_list":        []Network{{Name: "home", ID: "home-id"}},
+		"mesh_peer_list":      []MeshPeer{},
+		"durable_siphon_list": []DurableSiphon{},
+		"event_query":         []Event{},
 	}}
 	snapshot := (Service{Caller: caller}).Snapshot(context.Background(), "missing")
 	if snapshot.SelectedNetwork != "home" {

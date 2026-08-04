@@ -54,15 +54,29 @@ type VerifyRequest struct {
 }
 
 type VerifyResult struct {
-	RunID          string `json:"runId"`
-	Network        string `json:"network"`
-	Stream         string `json:"stream"`
-	OriginDeviceID string `json:"originDeviceId,omitempty"`
-	Expected       int    `json:"expected"`
-	Seen           int    `json:"seen"`
-	Sequences      []int  `json:"sequences"`
-	Missing        []int  `json:"missing"`
-	Complete       bool   `json:"complete"`
+	Version              int    `json:"version"`
+	RunID                string `json:"runId"`
+	Network              string `json:"network"`
+	Stream               string `json:"stream"`
+	OriginDeviceID       string `json:"originDeviceId,omitempty"`
+	ObserverDeviceID     string `json:"observerDeviceId"`
+	Expected             int    `json:"expected"`
+	Seen                 int    `json:"seen"`
+	Sequences            []int  `json:"sequences"`
+	Missing              []int  `json:"missing"`
+	Duplicates           []int  `json:"duplicates"`
+	Unexpected           []int  `json:"unexpected"`
+	PublishedAt          string `json:"publishedAt,omitempty"`
+	CheckedAt            string `json:"checkedAt"`
+	ObservedWithinMillis *int64 `json:"observedWithinMillis,omitempty"`
+	Attempts             int    `json:"attempts"`
+	WaitedMillis         int64  `json:"waitedMillis"`
+	Complete             bool   `json:"complete"`
+}
+
+type WaitOptions struct {
+	Timeout      time.Duration
+	PollInterval time.Duration
 }
 
 type nodeStatus struct {
@@ -180,6 +194,10 @@ func Publish(ctx context.Context, caller Caller, now time.Time, request PublishR
 }
 
 func Verify(ctx context.Context, caller Caller, request VerifyRequest) (VerifyResult, error) {
+	return verifyAt(ctx, caller, request, time.Now())
+}
+
+func verifyAt(ctx context.Context, caller Caller, request VerifyRequest, now time.Time) (VerifyResult, error) {
 	request.Network = strings.TrimSpace(request.Network)
 	request.Stream = strings.TrimSpace(request.Stream)
 	request.RunID = strings.TrimSpace(request.RunID)
@@ -192,6 +210,10 @@ func Verify(ctx context.Context, caller Caller, request VerifyRequest) (VerifyRe
 	if request.Expected < 1 || request.Expected > MaxEventCount {
 		return VerifyResult{}, fmt.Errorf("expected must be between 1 and %d", MaxEventCount)
 	}
+	var status nodeStatus
+	if err := caller.Call(ctx, "network_status", map[string]any{}, &status); err != nil {
+		return VerifyResult{}, fmt.Errorf("read observer identity: %w", err)
+	}
 	var events []eventEnvelope
 	if err := caller.Call(ctx, "event_query", map[string]any{
 		"network": request.Network,
@@ -200,7 +222,9 @@ func Verify(ctx context.Context, caller Caller, request VerifyRequest) (VerifyRe
 	}, &events); err != nil {
 		return VerifyResult{}, fmt.Errorf("query test events: %w", err)
 	}
-	seen := make(map[int]struct{})
+	seen := make(map[int]int)
+	unexpected := make(map[int]struct{})
+	publishedAt := ""
 	for _, event := range events {
 		var payload testPayload
 		if json.Unmarshal(event.Payload, &payload) != nil || payload.Kind != "thalweg.mesh_test.v1" || payload.RunID != request.RunID {
@@ -209,31 +233,96 @@ func Verify(ctx context.Context, caller Caller, request VerifyRequest) (VerifyRe
 		if request.OriginDeviceID != "" && payload.OriginDeviceID != request.OriginDeviceID {
 			continue
 		}
+		if publishedAt == "" || (payload.SentAt != "" && payload.SentAt < publishedAt) {
+			publishedAt = payload.SentAt
+		}
 		if payload.Sequence >= 1 && payload.Sequence <= request.Expected {
-			seen[payload.Sequence] = struct{}{}
+			seen[payload.Sequence]++
+		} else {
+			unexpected[payload.Sequence] = struct{}{}
 		}
 	}
+	now = now.UTC()
 	result := VerifyResult{
-		RunID:          request.RunID,
-		Network:        request.Network,
-		Stream:         request.Stream,
-		OriginDeviceID: request.OriginDeviceID,
-		Expected:       request.Expected,
-		Sequences:      make([]int, 0, len(seen)),
-		Missing:        make([]int, 0),
+		Version:          1,
+		RunID:            request.RunID,
+		Network:          request.Network,
+		Stream:           request.Stream,
+		OriginDeviceID:   request.OriginDeviceID,
+		ObserverDeviceID: status.DeviceID,
+		Expected:         request.Expected,
+		Sequences:        make([]int, 0, len(seen)),
+		Missing:          make([]int, 0),
+		Duplicates:       make([]int, 0),
+		Unexpected:       make([]int, 0, len(unexpected)),
+		PublishedAt:      publishedAt,
+		CheckedAt:        now.Format(time.RFC3339Nano),
+		Attempts:         1,
 	}
-	for sequence := range seen {
+	for sequence, count := range seen {
 		result.Sequences = append(result.Sequences, sequence)
+		if count > 1 {
+			result.Duplicates = append(result.Duplicates, sequence)
+		}
 	}
 	sort.Ints(result.Sequences)
+	sort.Ints(result.Duplicates)
+	for sequence := range unexpected {
+		result.Unexpected = append(result.Unexpected, sequence)
+	}
+	sort.Ints(result.Unexpected)
 	for sequence := 1; sequence <= request.Expected; sequence++ {
 		if _, exists := seen[sequence]; !exists {
 			result.Missing = append(result.Missing, sequence)
 		}
 	}
 	result.Seen = len(result.Sequences)
-	result.Complete = result.Seen == request.Expected
+	result.Complete = result.Seen == request.Expected && len(result.Duplicates) == 0 && len(result.Unexpected) == 0
+	if parsed, err := time.Parse(time.RFC3339Nano, result.PublishedAt); err == nil && now.After(parsed) {
+		observedWithinMillis := now.Sub(parsed).Milliseconds()
+		result.ObservedWithinMillis = &observedWithinMillis
+	}
 	return result, nil
+}
+
+func WaitForConvergence(ctx context.Context, caller Caller, request VerifyRequest, options WaitOptions) (VerifyResult, error) {
+	if options.Timeout <= 0 {
+		return Verify(ctx, caller, request)
+	}
+	if options.PollInterval <= 0 {
+		options.PollInterval = 100 * time.Millisecond
+	}
+	if options.PollInterval < 25*time.Millisecond || options.PollInterval > 5*time.Second {
+		return VerifyResult{}, fmt.Errorf("poll interval must be between 25ms and 5s")
+	}
+	started := time.Now()
+	attempts := 0
+	var last VerifyResult
+	for {
+		attempts++
+		result, err := Verify(ctx, caller, request)
+		if err != nil {
+			return VerifyResult{}, err
+		}
+		result.Attempts = attempts
+		result.WaitedMillis = time.Since(started).Milliseconds()
+		last = result
+		if result.Complete {
+			return result, nil
+		}
+		remaining := options.Timeout - time.Since(started)
+		if remaining <= 0 {
+			return last, nil
+		}
+		wait := min(options.PollInterval, remaining)
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return VerifyResult{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func randomRunID() (string, error) {
