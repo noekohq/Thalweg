@@ -7,7 +7,7 @@ Typed TypeScript SDK for the local Thalweg daemon.
 From the monorepo root, start the daemon first:
 
 ```bash
-go run . spawn
+go run ./cmd/thalweg spawn
 ```
 
 Run the simple Velotic timeline demo:

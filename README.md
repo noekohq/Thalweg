@@ -24,7 +24,7 @@ make build
 Individual surfaces remain independently runnable:
 
 ```bash
-go run . spawn
+go run ./cmd/thalweg spawn
 bun run dev:console
 bun run demo:velotic
 ```
@@ -194,7 +194,7 @@ Alternatively, launch the explicitly writable browser workbench with
 The source-tree-compatible command remains:
 
 ```bash
-go run . spawn
+go run ./cmd/thalweg spawn
 ```
 
 It listens on `/tmp/thalweg.sock`, stores events in `./storage/badger`, stores
@@ -205,7 +205,7 @@ mounted network credentials in the restricted
 Operational paths and stable listeners can be configured:
 
 ```bash
-go run . spawn \
+go run ./cmd/thalweg spawn \
   --socket /tmp/thalweg.sock \
   --storage ./storage/badger \
   --p2p-listen /ip4/0.0.0.0/tcp/42422

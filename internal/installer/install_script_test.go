@@ -1,4 +1,4 @@
-package main
+package installer
 
 import (
 	"os"
@@ -34,7 +34,7 @@ chmod 0755 "$output"
 		t.Fatal(err)
 	}
 
-	command := exec.Command("/bin/sh", filepath.Join("scripts", "install.sh"))
+	command := exec.Command("/bin/sh", filepath.Join("..", "..", "scripts", "install.sh"))
 	command.Env = append(os.Environ(),
 		"HOME="+tempDir,
 		"PATH="+fakeBinDir+":/usr/bin:/bin",
@@ -88,7 +88,7 @@ chmod 0755 "$output"
 		t.Fatal(err)
 	}
 
-	command := exec.Command("/bin/sh", filepath.Join("scripts", "install.sh"))
+	command := exec.Command("/bin/sh", filepath.Join("..", "..", "scripts", "install.sh"))
 	command.Env = append(os.Environ(),
 		"HOME="+tempDir,
 		"PATH="+fakeBinDir+":"+installDir+":/usr/bin:/bin",
@@ -155,7 +155,7 @@ chmod 0755 "$output"
 		t.Fatal(err)
 	}
 
-	command := exec.Command("/bin/sh", filepath.Join("scripts", "install.sh"))
+	command := exec.Command("/bin/sh", filepath.Join("..", "..", "scripts", "install.sh"))
 	command.Env = append(os.Environ(),
 		"HOME="+tempDir,
 		"PATH="+fakeBinDir+":"+installDir+":/usr/bin:/bin",
@@ -220,7 +220,7 @@ chmod 0755 "$output"
 		t.Fatal(err)
 	}
 
-	command := exec.Command("/bin/sh", filepath.Join("scripts", "install.sh"))
+	command := exec.Command("/bin/sh", filepath.Join("..", "..", "scripts", "install.sh"))
 	command.Env = append(os.Environ(),
 		"HOME="+tempDir,
 		"PATH="+fakeBinDir+":"+installDir+":/usr/bin:/bin",

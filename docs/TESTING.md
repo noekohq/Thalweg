@@ -158,9 +158,9 @@ The acceptance run used:
 Build binaries:
 
 ```bash
-go build -o /tmp/thalweg-darwin-arm64 .
+go build -o /tmp/thalweg-darwin-arm64 ./cmd/thalweg
 env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
-  go build -o /tmp/thalweg-linux-arm64 .
+  go build -o /tmp/thalweg-linux-arm64 ./cmd/thalweg
 limactl copy /tmp/thalweg-linux-arm64 \
   playground:/tmp/thalweg-linux-arm64
 ```

@@ -47,7 +47,7 @@ bun run demo:velotic
 The demo requires a daemon running from the monorepo root:
 
 ```bash
-go run . spawn
+go run ./cmd/thalweg spawn
 ```
 
 ## Current Public Concepts

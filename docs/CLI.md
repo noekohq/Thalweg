@@ -154,7 +154,7 @@ This is process management, not full service supervision: automatic login
 startup, restart-on-failure, upgrades, and uninstallation remain deferred.
 
 `thalweg start` is an alias with the same foreground and `-d` behavior. For
-development in a checkout, `go run . spawn` preserves the original relative
+development in a checkout, `go run ./cmd/thalweg spawn` preserves the original relative
 `./storage/badger` behavior.
 
 ## Diagnose a node

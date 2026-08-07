@@ -13,17 +13,15 @@ The TypeScript SDK lives at `packages/sdk-js` in this monorepo.
 
 Important entry points:
 
-- `main.go`: CLI and daemon startup.
-- `cli.go`: native initialization, provisioning, event, peer, and status
-  commands.
-- `cli_config.go`: per-user config resolution and restricted atomic writes.
-- `cli_ipc.go`: bounded local CLI request/response client.
-- `cli_console.go`: TUI and loopback web-console CLI entry points.
-- `cli_daemon_lifecycle.go`: managed daemon state, status, logs, stop, and
+- `cmd/thalweg/main.go`: minimal binary entry point.
+- `internal/cli`: native initialization, provisioning, event, peer, status,
+  configuration, and bounded local IPC commands.
+- `internal/cli/command_console.go`: TUI and loopback web-console entry points.
+- `internal/cli/command_daemon_lifecycle.go`: managed daemon state, status, logs, stop, and
   restart.
-- `cli_upgrade.go`: source-channel installation records, Git fast-forward
+- `internal/cli/command_upgrade.go`: source-channel installation records, Git fast-forward
   validation, atomic reinstall, and post-upgrade restart.
-- `cli_doctor.go`: read-only configuration, lifecycle, permissions, p2p,
+- `internal/cli/command_doctor.go`: read-only configuration, lifecycle, permissions, p2p,
   installation, upgrade-readiness, and log diagnostics.
 - `internal/console`: shared read-only daemon adapter, snapshot model, Bubble
   Tea TUI, embedded browser UI, security-sensitive routing, and tests.

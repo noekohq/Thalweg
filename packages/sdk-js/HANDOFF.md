@@ -30,7 +30,7 @@ bun test
 From the monorepo root, start the daemon:
 
 ```bash
-go run . spawn
+go run ./cmd/thalweg spawn
 ```
 
 Then run:

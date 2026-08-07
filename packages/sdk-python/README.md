@@ -27,7 +27,7 @@ behavior.
 The daemon can be started from the monorepo root during development:
 
 ```bash
-go run . spawn
+go run ./cmd/thalweg spawn
 ```
 
 ## Installation

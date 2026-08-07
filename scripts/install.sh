@@ -40,7 +40,7 @@ trap 'rm -f "${temporary_binary:-}" "${temporary_record:-}"' EXIT HUP INT TERM
 
 (
   cd "$repo_dir"
-  go build -trimpath -o "$temporary_binary" .
+  go build -trimpath -o "$temporary_binary" ./cmd/thalweg
 )
 chmod 0755 "$temporary_binary"
 mv "$temporary_binary" "$install_dir/thalweg"

@@ -51,7 +51,7 @@ make build
 
 # Focused commands
 go test ./...
-go run . spawn
+go run ./cmd/thalweg spawn
 bun --cwd packages/sdk-js test
 PYTHONPATH=packages/sdk-python/src python3 -m unittest discover -s packages/sdk-python/tests -t packages/sdk-python
 bun run --cwd apps/console-web check

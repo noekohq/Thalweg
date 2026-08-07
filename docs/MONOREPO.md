@@ -32,7 +32,9 @@ There is one Go module, so a `go.work` file is unnecessary. There is one root
 ├── packages/
 │   ├── sdk-js/             published TypeScript SDK
 │   └── sdk-python/         async Python SDK
+├── cmd/thalweg/            minimal Go binary entry point
 ├── core/daemon/            Go event, storage, enrollment, and mesh core
+├── internal/cli/           operator CLI and daemon process orchestration
 ├── internal/console/       Go observer model, TUI, server, embedded assets
 ├── internal/ipc/           local Go IPC client
 ├── docs/                   canonical system documentation
@@ -46,9 +48,9 @@ For example, the transcript-to-note worker is maintained in the sibling
 `thalweg-transcript-worker` project and consumes Thalweg solely through the
 public SDK and daemon API.
 
-The Go command remains at the repository root for now. Moving it to
-`cmd/thalweg` requires separating the current root `main` package from its CLI
-implementation and should be performed as an independent refactor.
+The Go command lives at `cmd/thalweg`; its entry point delegates to the
+non-public `internal/cli` package. This keeps the repository root focused on
+workspace configuration while preserving one installable binary.
 
 ## Common Commands
 
