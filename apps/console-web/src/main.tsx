@@ -80,6 +80,29 @@ type DurableSiphon = {
   pendingAttempts: number;
 };
 
+type RegistryDefinition = {
+  name: string;
+  kind: "Source" | "Sink" | "Processor";
+  runtimeState: string;
+  network: string;
+  stream?: string;
+  streams?: string[];
+  processed: number;
+  failureCount: number;
+  lastSuccessAt?: string;
+  lastError?: string;
+};
+
+type RegistryStatus = {
+  version: number;
+  state: string;
+  healthy: number;
+  degraded: number;
+  stopped: number;
+  pendingReload: boolean;
+  definitions: RegistryDefinition[];
+};
+
 type Snapshot = {
   capturedAt: string;
   state: ConsoleState;
@@ -94,6 +117,7 @@ type Snapshot = {
   networks: Network[];
   peers: MeshPeer[];
   durableSiphons: DurableSiphon[];
+  registry: RegistryStatus;
   selectedNetwork?: string;
   events: Event[];
   streams: StreamSummary[];
@@ -271,6 +295,7 @@ function App() {
     { label: "Networks", value: String(snapshot?.networks.length ?? 0) },
     { label: "Known peers", value: String(snapshot?.peers?.length ?? 0) },
     { label: "Recent events", value: String(events.length) },
+    { label: "Integrations", value: String(snapshot?.registry?.definitions?.length ?? 0) },
     {
       label: "Versions",
       value: snapshot
@@ -549,6 +574,50 @@ function App() {
                           <Text size="xs">{peer.consecutiveFailures} failures</Text>
                           <Text c="dimmed" size="xs">{localTime(peer.nextAttemptAt)}</Text>
                         </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </ScrollArea>
+            )}
+          </Card>
+
+          <Card withBorder padding="lg">
+            <SectionTitle
+              title="Registry"
+              detail={snapshot?.registry?.pendingReload ? "Pending reload" : "Accepted local definitions"}
+            />
+            {!snapshot?.registry?.definitions?.length ? (
+              <Empty>No accepted registry definitions.</Empty>
+            ) : (
+              <ScrollArea type="auto">
+                <Table verticalSpacing="sm" miw={760}>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Name</Table.Th>
+                      <Table.Th>Kind</Table.Th>
+                      <Table.Th>State</Table.Th>
+                      <Table.Th>Network</Table.Th>
+                      <Table.Th>Processed</Table.Th>
+                      <Table.Th>Last activity</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {snapshot.registry.definitions.map((definition) => (
+                      <Table.Tr key={definition.name}>
+                        <Table.Td>
+                          <Text ff="monospace" size="sm">{definition.name}</Text>
+                          {definition.lastError && <Text c="yellow" size="xs" maw={300}>{definition.lastError}</Text>}
+                        </Table.Td>
+                        <Table.Td><Badge variant="light">{definition.kind}</Badge></Table.Td>
+                        <Table.Td>
+                          <Badge color={definition.runtimeState === "failed" || definition.runtimeState === "backoff" ? "yellow" : definition.runtimeState === "running" || definition.runtimeState === "waiting" || definition.runtimeState === "completed" ? "green" : "gray"} variant="light">
+                            {definition.runtimeState}
+                          </Badge>
+                        </Table.Td>
+                        <Table.Td>{definition.network}</Table.Td>
+                        <Table.Td>{definition.processed}</Table.Td>
+                        <Table.Td>{localTime(definition.lastSuccessAt)}</Table.Td>
                       </Table.Tr>
                     ))}
                   </Table.Tbody>

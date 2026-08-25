@@ -166,17 +166,42 @@ func (m tuiModel) View() string {
 	}
 
 	overview := renderOverview(m.snapshot, contentWidth)
+	registry := renderRegistry(m.snapshot, contentWidth)
 	addresses := renderAddresses(m.snapshot, contentWidth)
 	peers := renderPeers(m.snapshot, contentWidth)
 	streams := renderStreams(m.snapshot, contentWidth)
 	siphons := renderDurableSiphons(m.snapshot, contentWidth)
 	events := renderEvents(m.snapshot, contentWidth, m.height)
 	warnings := renderWarnings(m.snapshot, contentWidth)
-	bodySections = append(bodySections, overview, addresses, peers, streams, siphons, events)
+	bodySections = append(bodySections, overview, registry, addresses, peers, streams, siphons, events)
 	if warnings != "" {
 		bodySections = append(bodySections, warnings)
 	}
 	return renderTUIViewport(top, bodySections, contentWidth, m.height, m.offset)
+}
+
+func renderRegistry(snapshot Snapshot, width int) string {
+	lines := []string{tuiHeading.Render("Registry · local integrations")}
+	if snapshot.Registry.Version == 0 {
+		lines = append(lines, tuiSubtle.Render("Registry runtime unavailable."))
+		return tuiPanel.Width(width).Render(strings.Join(lines, "\n"))
+	}
+	lines = append(lines, fmt.Sprintf("%d healthy · %d degraded · %d stopped", snapshot.Registry.Healthy, snapshot.Registry.Degraded, snapshot.Registry.Stopped))
+	if snapshot.Registry.PendingReload {
+		lines = append(lines, lipgloss.NewStyle().Foreground(tuiYellow).Render("Pending file changes require `thalweg registry reload`."))
+	}
+	for _, definition := range snapshot.Registry.Definitions {
+		state := definition.RuntimeState
+		line := fmt.Sprintf("%-18s %-10s %-10s %s", truncate(definition.Name, 18), strings.ToLower(definition.Kind), state, definition.Network)
+		lines = append(lines, truncate(line, width-6))
+		if definition.LastError != "" {
+			lines = append(lines, tuiSubtle.Render("  "+truncate(definition.LastError, width-8)))
+		}
+	}
+	if len(snapshot.Registry.Definitions) == 0 {
+		lines = append(lines, tuiSubtle.Render("No accepted registry definitions."))
+	}
+	return tuiPanel.Width(width).Render(strings.Join(lines, "\n"))
 }
 
 func (m tuiModel) loadSnapshot() tea.Cmd {

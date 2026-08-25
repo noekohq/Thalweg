@@ -290,6 +290,37 @@ Exit guarantee:
 > Authorized nodes converge on the same permitted logical history after being
 > offline, without leaking events between networks.
 
+## Milestone 2.5: Reliable Event Fabric
+
+This hardening milestone deliberately deepens the existing event and mesh
+contract before adding transport breadth, placement policy, or distributed
+execution. Thalweg's core promise is local durable acceptance followed by
+eventual convergence across reachable authorized peers.
+
+Definition of done:
+
+- [x] Enable synchronous Badger writes before acknowledging local ingestion.
+- [x] Generate retry-safe event IDs in the TypeScript and Python SDKs.
+- [x] Bound idle local clients and response writes.
+- Add abrupt-process-termination tests around local ingestion and restart.
+- [x] Add ambiguous-response retry tests proving one logical event is stored.
+- Add action-specific server deadlines and complete local IPC integration
+  coverage.
+- Exercise synchronization termination during authentication, inventory,
+  transfer, acknowledgement, and peer-state persistence.
+- Add shared TypeScript/Python protocol-conformance fixtures.
+- Expose peer lag, active synchronization, durable consumer progress, and
+  failure stage through the read-only Console and diagnostics.
+- Add supervised service registration and upgrade rollback after readiness
+  failure.
+- Pass multi-device soak testing with random restarts, partitions, retries, and
+  duplicate delivery.
+
+This milestone intentionally does not add GossipSub, WAN relays, distributed
+worker leases, scheduling, model execution, blob storage, or retention policy.
+Those remain downstream or later concerns until the event fabric's reliability
+contract is stable.
+
 ## Milestone 3: Policy-Driven Placement and Retention
 
 This milestone allows phones, workstations, servers, and small sensors to
@@ -349,6 +380,12 @@ must be durable.
 Definition of done:
 
 - Preserve the simple `ingest`, `query`, and fluent `siphon` path.
+- [x] Add a strict user-scoped YAML registry for supervised Sources, durable
+  Sinks, and derived-event Processors.
+- [x] Persist last-known-good registry snapshots and require explicit,
+  transactional reloads for file changes.
+- [x] Expose registry validation, lifecycle, logs, health, Doctor checks, and
+  read-only Console visibility.
 - Add batch ingestion with partial-failure and idempotency semantics.
 - Add catchment lifecycle primitives for cancellation, health, checkpoints, and
   graceful shutdown.

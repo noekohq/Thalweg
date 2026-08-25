@@ -40,7 +40,8 @@ Browser GUI ────┘
 - `thalweg console web` launches the local browser sidecar.
 - Both show daemon availability, identity, versions, memberships, addresses,
   remembered peer health, recent-window stream summaries, durable siphon
-  cursors/pending work, events, feature support, and explicit prototype
+  cursors/pending work, aggregate declarative-registry health and sanitized
+  definition failures, events, feature support, and explicit prototype
   limitations.
 - The TUI refreshes automatically, retains a fixed node/network header, scrolls
   with `j`/`k`, and changes networks with left/right.
@@ -58,7 +59,12 @@ Browser GUI ────┘
 The browser source lives in `apps/console-web`. After editing it, run
 `bun run --cwd apps/console-web check` and
 `bun run --cwd apps/console-web build`; the build writes the embedded
-production assets to `internal/console/web/assets`.
+  production assets to `internal/console/web/assets`.
+
+Registry views are deliberately read-only and consume `registry_status`
+through the shared observer. They never reveal commands, resolved process
+environments, or environment-file values; worker management remains in the
+CLI.
 
 The browser source and SDK are independent workspaces in the monorepo while the
 TUI and web sidecar continue to share one Go IPC adapter and presentation model.

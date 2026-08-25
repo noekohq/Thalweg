@@ -22,6 +22,7 @@ Read these documents before changing behavior:
 10. `docs/CONSOLE.md` - local dashboard and multi-device test harness.
 11. `HANDOFF.md` - current implementation caveats and recommended next work.
 12. `docs/MONOREPO.md` - workspace ownership and cross-language commands.
+13. `docs/REGISTRY.md` - declarative Source, Sink, and Processor runtime.
 
 ## Repository Responsibility
 

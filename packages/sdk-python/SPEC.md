@@ -45,7 +45,8 @@ The initial supported release must:
 - Runtime payload validation or a required Pydantic dependency.
 - Transparent request retry or restoration of ephemeral subscriptions after a
   connection failure.
-- Automatic retry of mutating requests.
+- Automatic retry of arbitrary mutating requests; ingestion is the deliberate
+  exception because its stable event ID makes one bounded retry safe.
 - Batch ingestion, catchment checkpoints, recurring windows, worker leases,
   lineage, or dead-letter policy before the daemon defines those contracts.
 - Direct BadgerDB access or implementation of libp2p protocols.
@@ -170,12 +171,14 @@ async def ingest(
 ) -> Event[PayloadT]: ...
 ```
 
-The method maps to `event_ingest`. Optional keys are omitted from the wire
-payload when unset. The daemon assigns `occurredAt` when it is absent.
+The method maps to `event_ingest`. The SDK assigns an `evt_`-prefixed UUID when
+`event_id` is omitted, so a timeout or connection close can safely retry the
+same logical event. The SDK makes one bounded retry for a retryable daemon,
+connection, or timeout failure. The daemon assigns `occurredAt` when it is
+absent and still generates an event ID for direct wire clients that omit it.
 
-Applications retrying an ingest after a timeout should supply a stable
-`event_id`. A client timeout or cancellation does not prove the daemon failed to
-store the event.
+A client timeout or cancellation does not prove the daemon failed to store the
+event; retry using the same generated or supplied event ID.
 
 ### 5.4 Queries
 
@@ -344,8 +347,10 @@ A late response for an expired request is ignored.
 
 Cancelling the awaiting task removes its pending entry but does not send a
 daemon cancellation because protocol version 1 has no cancellation frame. The
-socket remains usable. For mutating actions, timeout and cancellation mean the
-outcome is unknown; the SDK must not retry automatically.
+socket remains usable. For mutating actions other than ingestion, timeout and
+cancellation mean the outcome is unknown; the SDK must not retry
+automatically. Ingestion is retried once because its event ID makes the retry
+idempotent.
 
 ### 6.4 Disconnect and protocol failure
 

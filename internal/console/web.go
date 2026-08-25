@@ -250,9 +250,14 @@ func redactDiagnostics(snapshot *Snapshot) {
 	for index := range snapshot.Events {
 		snapshot.Events[index].Payload = json.RawMessage(`{"redacted":true}`)
 	}
+	snapshot.Registry.RegistryPath = ""
+	snapshot.Registry.SnapshotPath = ""
+	for index := range snapshot.Registry.Definitions {
+		snapshot.Registry.Definitions[index].SourceFile = ""
+	}
 	snapshot.Warnings = append(
 		snapshot.Warnings,
-		"Diagnostics export redacts event payloads and never includes membership credentials.",
+		"Diagnostics export redacts event payloads and local registry paths, and never includes membership credentials.",
 	)
 }
 

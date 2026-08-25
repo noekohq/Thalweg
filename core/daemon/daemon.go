@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -26,6 +27,8 @@ import (
 	libp2ptcp "github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
+
+	"thalweg/internal/registry"
 )
 
 const canonicalTimestampLayout = "2006-01-02T15:04:05.000000000Z"
@@ -33,6 +36,8 @@ const canonicalTimestampLayout = "2006-01-02T15:04:05.000000000Z"
 const (
 	localMaxRequestBytes  = 1024 * 1024
 	subscriptionQueueSize = 128
+	localClientIdleWindow = 5 * time.Minute
+	localResponseDeadline = 30 * time.Second
 )
 
 type Message struct {
@@ -85,6 +90,7 @@ type Daemon struct {
 	p2p         host.Host
 	store       *badger.DB
 	memberships *membershipStore
+	registry    *registry.Runtime
 	routes      map[string]HandlerFunc
 
 	lifecycleMu sync.Mutex
@@ -141,7 +147,10 @@ type clientConn struct {
 func (c *clientConn) Encode(v any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.enc.Encode(v)
+	_ = c.conn.SetWriteDeadline(time.Now().Add(localResponseDeadline))
+	err := c.enc.Encode(v)
+	_ = c.conn.SetWriteDeadline(time.Time{})
+	return err
 }
 
 type subscription struct {
@@ -159,6 +168,7 @@ type Config struct {
 	Debug              bool
 	MeshSyncInterval   time.Duration
 	MeshSyncDebounce   time.Duration
+	RegistryPath       string
 }
 
 func New(path string, dbPath string) (*Daemon, error) {
@@ -172,7 +182,9 @@ func NewWithConfig(config Config) (*Daemon, error) {
 	if config.DBPath == "" {
 		return nil, fmt.Errorf("database path is required")
 	}
-	db, err := badger.Open(badger.DefaultOptions(config.DBPath))
+	db, err := badger.Open(
+		badger.DefaultOptions(config.DBPath).WithSyncWrites(true),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open badgerdb: %w", err)
 	}
@@ -244,6 +256,21 @@ func NewWithConfig(config Config) (*Daemon, error) {
 			Level: slog.LevelDebug,
 		})),
 	}
+	if config.RegistryPath != "" {
+		registryRoot := filepath.Join(filepath.Dir(config.DBPath), "registry")
+		runtime, err := registry.New(registry.Config{
+			RegistryPath: config.RegistryPath,
+			SnapshotPath: filepath.Join(registryRoot, "accepted-v1.json"),
+			LogPath:      filepath.Join(registryRoot, "logs"),
+			Host:         daemonRegistryHost{daemon: d},
+		})
+		if err != nil {
+			_ = node.Close()
+			_ = db.Close()
+			return nil, fmt.Errorf("create registry runtime: %w", err)
+		}
+		d.registry = runtime
+	}
 	if d.meshSyncInterval == 0 {
 		d.meshSyncInterval = 30 * time.Second
 	}
@@ -303,6 +330,11 @@ func (d *Daemon) Start() error {
 	d.listener = listener
 	d.ownsSocket = true
 	d.started = true
+	if d.registry != nil {
+		if err := d.registry.Start(d.ctx); err != nil {
+			d.logger.Error("registry runtime did not start", "stage", "registry.start", "error", err)
+		}
+	}
 	d.restorePeers()
 	d.restoreMeshPeers()
 	d.lifecycleMu.Unlock()
@@ -349,6 +381,11 @@ func (d *Daemon) Close() error {
 		d.lifecycleMu.Unlock()
 
 		var errs []error
+		if d.registry != nil {
+			if err := d.registry.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("close registry runtime: %w", err))
+			}
+		}
 		if listener != nil {
 			if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 				errs = append(errs, fmt.Errorf("close unix listener: %w", err))
@@ -416,7 +453,11 @@ func (d *Daemon) Handle(conn net.Conn) {
 
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 64*1024), localMaxRequestBytes)
-	for scanner.Scan() {
+	for {
+		_ = conn.SetReadDeadline(time.Now().Add(localClientIdleWindow))
+		if !scanner.Scan() {
+			break
+		}
 		var msg Message
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
 			d.writeLocalError(client, "", "invalid_request", "invalid JSON structure", false)
@@ -505,6 +546,7 @@ func classifyLocalError(err error) (string, bool) {
 
 func (d *Daemon) registerRoutes() {
 	d.registerEnrollmentRoutes()
+	d.registerRegistryRoutes()
 
 	d.Register("daemon_shutdown", func(_ *clientConn, _ json.RawMessage) (any, error) {
 		return map[string]any{"stopping": true}, nil
@@ -724,6 +766,9 @@ func (d *Daemon) registerRoutes() {
 		if err := json.Unmarshal(payload, &args); err != nil {
 			return nil, err
 		}
+		if strings.HasPrefix(args.Name, registry.ReservedPrefix) {
+			return nil, fmt.Errorf("durable siphon names beginning with %q are reserved", registry.ReservedPrefix)
+		}
 		return d.createDurableSiphon(args.Network, args.Name, args.Streams, args.Start)
 	})
 
@@ -736,7 +781,17 @@ func (d *Daemon) registerRoutes() {
 				return nil, err
 			}
 		}
-		return d.listDurableSiphons(args.Network)
+		definitions, err := d.listDurableSiphons(args.Network)
+		if err != nil {
+			return nil, err
+		}
+		visible := definitions[:0]
+		for _, definition := range definitions {
+			if !strings.HasPrefix(definition.Name, registry.ReservedPrefix) {
+				visible = append(visible, definition)
+			}
+		}
+		return visible, nil
 	})
 
 	d.Register("durable_siphon_poll", func(_ *clientConn, payload json.RawMessage) (any, error) {

@@ -82,11 +82,16 @@ Defaults:
 | Config | `~/.config/thalweg/config.json` |
 | Socket | `/tmp/thalweg.sock` |
 | Storage | `~/.local/share/thalweg/storage/badger` |
+| Registry | `~/.config/thalweg/registry.d` |
 | P2P listener | `/ip4/0.0.0.0/tcp/42422` |
 
 The config file is written with mode `0600` and its directory with mode `0700`.
 The storage contains the private device identity and mounted membership
 credentials and should be treated as sensitive.
+
+Initialization also creates restricted `sources`, `sinks`, and `processors`
+registry directories plus `~/.config/thalweg/env.d`. See
+[`REGISTRY.md`](REGISTRY.md) for the YAML and child-process contracts.
 
 To customize the node:
 
@@ -533,13 +538,49 @@ This first durable slice is pull-based with one outstanding batch per name.
 It does not yet provide multi-worker leases, dead letters, windows, or
 watermarks.
 
+## Declarative registry
+
+Place strict `thalweg.dev/v1alpha1` Source, Sink, or Processor YAML definitions
+under the initialized registry directory, validate them offline, and activate
+the complete candidate set explicitly:
+
+```bash
+thalweg registry validate
+thalweg registry reload
+thalweg registry status
+```
+
+Daemon restarts use the last accepted snapshot. Editing a file does not change
+running workers until reload succeeds; `status` reports `pendingReload` when
+the files differ. Inspect and temporarily manage one accepted definition with:
+
+```bash
+thalweg registry inspect desktop-notes
+thalweg registry stop desktop-notes
+thalweg registry start desktop-notes
+thalweg registry restart desktop-notes
+thalweg registry logs --follow desktop-notes
+```
+
+Changing a Sink or Processor network, stream selector, or starting position
+requires explicitly deleting its durable progress before reload:
+
+```bash
+thalweg registry reset --yes transcript-archive
+thalweg registry reload
+```
+
+Reset is destructive only to that registry consumer's cursor and pending
+delivery; it does not delete events. The complete schema, execution contract,
+retry behavior, and examples are in [`REGISTRY.md`](REGISTRY.md).
+
 ## Configuration precedence
 
 Client and daemon commands resolve values in this order:
 
 1. Command flags where available.
-2. `THALWEG_SOCKET_PATH`, `THALWEG_STORAGE_PATH`, and
-   `THALWEG_P2P_LISTEN_ADDRS`.
+2. `THALWEG_SOCKET_PATH`, `THALWEG_STORAGE_PATH`,
+   `THALWEG_P2P_LISTEN_ADDRS`, and `THALWEG_REGISTRY_PATH`.
 3. The initialized config file.
 4. Built-in defaults.
 
@@ -583,6 +624,14 @@ thalweg siphon create --network NAME [--streams A,B] [--start earliest] SIPHON_N
 thalweg siphon list [--network NAME]
 thalweg siphon poll --network NAME [--limit 25] [--wait 20s] SIPHON_NAME
 thalweg siphon ack --network NAME --delivery DELIVERY_ID SIPHON_NAME
+thalweg registry validate [--json]
+thalweg registry reload
+thalweg registry status [--json]
+thalweg registry list [--json]
+thalweg registry inspect NAME
+thalweg registry start|stop|restart NAME
+thalweg registry reset --yes NAME
+thalweg registry logs [--lines 100] [--follow] NAME
 thalweg version
 ```
 

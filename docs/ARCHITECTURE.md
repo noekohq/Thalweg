@@ -23,6 +23,9 @@ The Thalweg monorepo keeps protocol producers and consumers versioned together:
 - `apps` is the home for independently deployed Thalweg clients such as the
   planned React Native mobile edge node.
 - Noeko remains a separate downstream semantic knowledge system.
+- `internal/registry` owns strict local integration definitions, accepted
+  snapshots, child-process supervision, durable delivery, and sanitized
+  runtime health. It reaches storage only through a narrow daemon host adapter.
 
 Component packages retain explicit responsibility boundaries even though one
 change can now update and test both sides of a protocol contract.
@@ -101,6 +104,8 @@ The current daemon:
   approval/denial, and post-approval initial synchronization.
 - Disables TCP source-port reuse until hole punching is implemented, avoiding
   same-port macOS LAN dial failures.
+- Loads a last-known-good user registry snapshot and supervises declarative
+  Sources, durable Sinks, and derived-event Processors as local child processes.
 
 Successful local ingestion signals a network-scoped, debounced synchronization
 to remembered authorized peers. Bursts coalesce into one inventory exchange;

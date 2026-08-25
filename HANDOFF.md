@@ -28,6 +28,11 @@ Important entry points:
 - `internal/lab`: bounded deterministic test-event publication and replica
   sequence verification, including blocking convergence reports, shared by CLI
   and the opt-in browser workbench.
+- `internal/registry`: strict user YAML definitions, accepted snapshots,
+  executable supervision, durable Sink/Processor delivery, retry, logs, and
+  sanitized health shared by CLI and Consoles.
+- `core/daemon/registry.go`: narrow host adapter and version-1 registry IPC
+  routes without direct registry access to Badger or memberships.
 - `core/daemon/durable_siphon.go`: schema-4 receipt index, named consumer
   definitions, pending batches, bounded wakeups, acknowledgements, and restart
   retry.

@@ -233,6 +233,124 @@ describe("Siphon runtime safety", () => {
   });
 });
 
+describe("Ingestion retry identity", () => {
+  test("retries an ambiguous response with the same event ID", async () => {
+    const seen: Record<string, unknown>[] = [];
+    let attempts = 0;
+    const path = await listen((message, socket) => {
+      seen.push(message);
+      attempts += 1;
+      if (attempts === 1) {
+        // Simulate a daemon that committed the event but lost its response.
+        socket.destroy();
+        return;
+      }
+      const payload = message.payload as Record<string, unknown>;
+      socket.write(`${JSON.stringify({
+        id: message.id,
+        protocolVersion: THALWEG_PROTOCOL_VERSION,
+        success: true,
+        data: {
+          id: String(payload.eventId),
+          network: "home",
+          stream: "note",
+          occurredAt: "2026-08-07T12:00:00.000000000Z",
+          insertedAt: "2026-08-07T12:00:00.000000000Z",
+          propagatedAt: "2026-08-07T12:00:00.000000000Z",
+          counter: 1,
+          deviceId: "device",
+          payload: payload.payload,
+        },
+      })}\n`);
+    });
+    const thalweg = new Thalweg<{ note: { content: string } }, {}>({
+      socket: path,
+      network: "home",
+    });
+    try {
+      await expect(thalweg.ingest("note", { content: "retry me" })).resolves.toMatchObject({
+        id: expect.stringMatching(/^evt_[0-9a-f-]{36}$/),
+      });
+    } finally {
+      await thalweg.close();
+    }
+
+    expect(seen).toHaveLength(2);
+    expect(seen[0]?.payload.eventId).toBe(seen[1]?.payload.eventId);
+  });
+
+  test("generates a stable event ID before sending", async () => {
+    const seen: Record<string, unknown>[] = [];
+    const path = await listen((message, socket) => {
+      seen.push(message);
+      const payload = message.payload as Record<string, unknown>;
+      socket.write(`${JSON.stringify({
+        id: message.id,
+        protocolVersion: THALWEG_PROTOCOL_VERSION,
+        success: true,
+        data: {
+          id: String(payload.eventId),
+          network: "home",
+          stream: "note",
+          occurredAt: "2026-08-07T12:00:00.000000000Z",
+          insertedAt: "2026-08-07T12:00:00.000000000Z",
+          propagatedAt: "2026-08-07T12:00:00.000000000Z",
+          counter: 1,
+          deviceId: "device",
+          payload: payload.payload,
+        },
+      })}\n`);
+    });
+    const thalweg = new Thalweg<{ note: { content: string } }, {}>({
+      socket: path,
+      network: "home",
+    });
+    try {
+      await thalweg.ingest("note", { content: "retry me" });
+    } finally {
+      await thalweg.close();
+    }
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.payload.eventId).toMatch(/^evt_[0-9a-f-]{36}$/);
+  });
+
+  test("preserves an explicit event ID", async () => {
+    const seen: Record<string, unknown>[] = [];
+    const path = await listen((message, socket) => {
+      seen.push(message);
+      const payload = message.payload as Record<string, unknown>;
+      socket.write(`${JSON.stringify({
+        id: message.id,
+        protocolVersion: THALWEG_PROTOCOL_VERSION,
+        success: true,
+        data: {
+          id: "explicit-id",
+          network: "home",
+          stream: "note",
+          occurredAt: "2026-08-07T12:00:00.000000000Z",
+          insertedAt: "2026-08-07T12:00:00.000000000Z",
+          propagatedAt: "2026-08-07T12:00:00.000000000Z",
+          counter: 1,
+          deviceId: "device",
+          payload: payload.payload,
+        },
+      })}\n`);
+    });
+    const thalweg = new Thalweg<{ note: { content: string } }, {}>({
+      socket: path,
+      network: "home",
+    });
+    try {
+      await thalweg.ingest("note", { content: "stable" }, { eventId: "explicit-id" });
+    } finally {
+      await thalweg.close();
+    }
+
+    expect(seen[0]?.payload.eventId).toBe("explicit-id");
+  });
+});
+
 describe("Durable siphon API", () => {
   type Streams = {
     "voice:transcript": { text: string };

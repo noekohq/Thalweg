@@ -37,6 +37,7 @@ There is one Go module, so a `go.work` file is unnecessary. There is one root
 ├── internal/cli/           operator CLI and daemon process orchestration
 ├── internal/console/       Go observer model, TUI, server, embedded assets
 ├── internal/ipc/           local Go IPC client
+├── internal/registry/      declarative integration loader and supervisor
 ├── docs/                   canonical system documentation
 ├── package.json            Bun workspace and JavaScript task entry points
 ├── bun.lock                JavaScript dependency lock

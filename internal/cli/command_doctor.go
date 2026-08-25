@@ -16,6 +16,7 @@ import (
 	manet "github.com/multiformats/go-multiaddr/net"
 
 	daemon "thalweg/core/daemon"
+	"thalweg/internal/registry"
 )
 
 var errDoctorFailed = errors.New("doctor found failed checks")
@@ -105,6 +106,7 @@ func (r *doctorRunner) run() {
 	status, daemonRunning := r.checkDaemon(daemonConfig, state, stateAvailable)
 	r.checkSocket(daemonConfig, daemonRunning)
 	r.checkStorage(config)
+	r.checkRegistry(config, daemonRunning)
 	r.checkSensitiveFile(
 		"identity.permissions",
 		filepath.Join(filepath.Dir(filepath.Clean(config.StoragePath)), "identity.key"),
@@ -120,6 +122,61 @@ func (r *doctorRunner) run() {
 	r.checkLog(config, state, stateAvailable)
 	if configPath == "" {
 		r.add("config.path", "fail", "Could not resolve the configuration path.", "", "")
+	}
+}
+
+func (r *doctorRunner) checkRegistry(config localConfig, daemonRunning bool) {
+	info, err := os.Lstat(config.RegistryPath)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		r.add(
+			"registry.directory", "warn", "Registry directory has not been created.",
+			config.RegistryPath, "Run `thalweg init`.",
+		)
+	case err != nil:
+		r.add("registry.directory", "fail", "Could not inspect the registry directory.", err.Error(), "")
+	case !info.IsDir() || info.Mode()&os.ModeSymlink != 0:
+		r.add("registry.directory", "fail", "Registry path is not a regular directory.", config.RegistryPath, "")
+	case info.Mode().Perm()&0o022 != 0:
+		r.add("registry.directory", "fail", "Registry directory is writable by group or others.", fmt.Sprintf("%s has mode %04o", config.RegistryPath, info.Mode().Perm()), "Restrict the directory to the current user.")
+	default:
+		r.add("registry.directory", "pass", "Registry directory is restricted.", config.RegistryPath, "")
+	}
+	report, validationErr := registry.Validate(config.RegistryPath)
+	if validationErr != nil {
+		r.add("registry.definitions", "fail", "Registry definitions are invalid.", validationErr.Error(), "Run `thalweg registry validate` and correct the reported definition.")
+	} else {
+		r.add("registry.definitions", "pass", fmt.Sprintf("%d registry definition(s) are valid.", len(report.Definitions)), "", "")
+	}
+	snapshotPath := filepath.Join(filepath.Dir(config.StoragePath), "registry", "accepted-v1.json")
+	_, found, snapshotErr := registry.LoadSnapshot(snapshotPath)
+	switch {
+	case snapshotErr != nil:
+		r.add("registry.snapshot", "fail", "Accepted registry snapshot is invalid.", snapshotErr.Error(), "Stop the daemon and repair or remove the snapshot, then validate the registry.")
+	case !found:
+		r.add("registry.snapshot", "warn", "No accepted registry snapshot exists yet.", snapshotPath, "Start the daemon or run `thalweg registry reload`.")
+	default:
+		r.add("registry.snapshot", "pass", "Accepted registry snapshot is readable.", snapshotPath, "")
+	}
+	if !daemonRunning {
+		return
+	}
+	data, err := callDaemon(config.SocketPath, "registry_status", map[string]any{})
+	if err != nil {
+		r.add("registry.runtime", "warn", "Registry runtime status is unavailable.", err.Error(), "Restart the daemon after upgrading if registry management is expected.")
+		return
+	}
+	var status registry.Status
+	if err := json.Unmarshal(data, &status); err != nil {
+		r.add("registry.runtime", "fail", "Registry runtime returned invalid status.", err.Error(), "")
+		return
+	}
+	if status.Degraded > 0 {
+		r.add("registry.runtime", "warn", fmt.Sprintf("%d registry definition(s) are degraded.", status.Degraded), status.LastError, "Run `thalweg registry status` and inspect the affected logs.")
+	} else if status.PendingReload {
+		r.add("registry.runtime", "warn", "Registry files have pending changes.", "", "Run `thalweg registry reload` after validation.")
+	} else {
+		r.add("registry.runtime", "pass", "Registry runtime is healthy.", fmt.Sprintf("%d definition(s)", len(status.Definitions)), "")
 	}
 }
 

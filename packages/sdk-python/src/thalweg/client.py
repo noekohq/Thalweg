@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any, Generic, Literal, TypeVar, cast
 
@@ -11,7 +12,9 @@ from ._transport import DaemonTransport
 from .errors import (
     ThalwegBackpressureError,
     ThalwegConnectionError,
+    ThalwegDaemonError,
     ThalwegProtocolError,
+    ThalwegTimeoutError,
 )
 from .models import (
     ConflictResolution,
@@ -268,18 +271,23 @@ class Thalweg:
             "network": self.network,
             "stream": stream,
             "payload": payload,
+            # Generate the identity before writing so a transport timeout can
+            # safely retry the same logical event instead of creating a new one.
+            "eventId": event_id or f"evt_{uuid.uuid4().hex}",
         }
         if occurred_at is not None:
             request["occurredAt"] = occurred_at
-        if event_id is not None:
-            request["eventId"] = event_id
-        return cast(
-            Event[PayloadT],
-            event_from_data(
-                await self._transport.request("event_ingest", request),
-                "event_ingest response",
-            ),
-        )
+        try:
+            response = await self._transport.request("event_ingest", request)
+        except ThalwegDaemonError as error:
+            if not error.retryable:
+                raise
+            response = await self._transport.request("event_ingest", request)
+        except (ThalwegConnectionError, ThalwegTimeoutError):
+            # A commit may have succeeded before the local response was lost.
+            # The preselected ID makes one retry safe and prevents duplicates.
+            response = await self._transport.request("event_ingest", request)
+        return cast(Event[PayloadT], event_from_data(response, "event_ingest response"))
 
     async def query(
         self,

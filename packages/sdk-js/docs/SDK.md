@@ -60,6 +60,12 @@ returns the originally stored envelope; reusing the ID with a different stream,
 supplied occurrence time, or payload is rejected. Payload whitespace and object
 key order do not affect equivalence.
 
+When `eventId` is omitted, the SDK generates an `evt_`-prefixed UUID before
+writing to the daemon. This makes a timeout or connection close safe to retry
+with the same logical event ID; the SDK makes one bounded retry for a
+retryable/ambiguous ingestion failure. The daemon still generates an ID for
+direct wire clients that omit it.
+
 ## Queries
 
 ```ts

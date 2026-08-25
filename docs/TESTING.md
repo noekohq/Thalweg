@@ -145,6 +145,38 @@ bun --cwd packages/sdk-js test --rerun-each 10
 The normal all-component entry points are `make check`, `make test`, and
 `make build`.
 
+Run the registry-focused unit and integration coverage with:
+
+```bash
+go test -race ./internal/registry
+go test ./core/daemon ./internal/cli ./internal/console
+```
+
+The registry suite covers strict YAML decoding and permissions, environment
+resolution, canonical digests, last-known-good snapshots, transactional reload
+failure, unchanged reconciliation, all Source modes, durable Sink replay and
+acknowledgement, deterministic Processor output, reset behavior, IPC/CLI
+management, and the reserved internal durable-siphon namespace.
+
+### Two-device registry acceptance
+
+1. Install a streaming Source on device A, run `thalweg registry validate` and
+   `thalweg registry reload`, and inspect its log and status.
+2. Confirm its events appear locally and near-immediately on device B.
+3. Install a Sink and Processor on device B; confirm the Sink acknowledges and
+   the derived Processor events replicate back to device A.
+4. Terminate a worker during a delivery and confirm the same delivery ID and
+   event batch replay before acknowledgement.
+5. Add an unknown YAML field or insecure file, confirm reload fails, and verify
+   existing worker PIDs/state remain healthy.
+6. Restart both daemons and confirm the accepted snapshot and durable cursors
+   resume without reactivating unaccepted disk edits.
+
+Capture `thalweg registry status --json`, `thalweg doctor --json`, and bounded
+`thalweg registry logs NAME` output with the acceptance notes. Definitions and
+environment files are device-local and should not be copied into diagnostics
+when they contain sensitive configuration.
+
 ## Host/VM Topology
 
 The acceptance run used:

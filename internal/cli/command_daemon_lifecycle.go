@@ -200,6 +200,7 @@ func runDaemonRestart(args []string, stdout, stderr io.Writer) error {
 		SocketPath:         *socket,
 		StoragePath:        *storage,
 		P2PListenAddresses: splitCommaList(*p2pListen),
+		RegistryPath:       config.RegistryPath,
 	}
 	if state, err := loadDaemonState(daemonStatePath(resolved)); err == nil {
 		if !flagWasSet(flags, "socket") && state.SocketPath != "" {

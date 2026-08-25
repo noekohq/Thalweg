@@ -66,15 +66,22 @@ Payload:
 }
 ```
 
-`network` and `stream` are required. `occurredAt` and `eventId` are optional.
-The response data is the stored event envelope. Accepted timestamps are
-normalized to UTC RFC3339Nano with nine fractional digits.
+`network` and `stream` are required. `occurredAt` and `eventId` are optional at
+the wire level; the daemon generates both when omitted. SDKs generate an
+`eventId` before sending so an ambiguous response can be retried safely. The
+response data is the stored event envelope. Accepted timestamps are normalized
+to UTC RFC3339Nano with nine fractional digits.
 
 `eventId` is unique within the selected network. Repeating an equivalent request
 returns the original stored envelope without storing or publishing another
 event. Reusing the ID with a different stream, supplied occurrence time, or
 payload returns an error. JSON payload whitespace and object-key ordering do not
 affect equivalence.
+
+The successful response means local durable acceptance only. It does not mean
+that every authorized peer has received the event; peer synchronization is
+asynchronous and eventually reconciled through event-triggered delivery and
+periodic anti-entropy.
 
 ### `event_query`
 
@@ -227,6 +234,79 @@ processor crash before acknowledgement therefore causes replay; integrations
 must make side effects idempotent. This first contract has one outstanding
 batch per named siphon and no leases, multi-worker claims, dead-letter policy,
 time windows, or watermarks yet.
+
+Names beginning with `thalweg.registry.v1.` are reserved for the declarative
+registry runtime. Public `durable_siphon_create` requests using that prefix are
+rejected, and registry-owned definitions are omitted from
+`durable_siphon_list`. They remain accessible only through the registry
+management actions below.
+
+### Registry actions
+
+Registry actions manage the accepted, device-local declarative integration
+snapshot. They never return resolved command environments or secret values.
+All actions use local IPC protocol version `1`; adding them does not change the
+meaning of existing version-1 requests.
+
+`registry_status` and `registry_list` accept `{}`. `registry_status` returns an
+aggregate object with snapshot metadata, health counts, pending-reload state,
+and sanitized per-definition runtime state. `registry_list` returns only the
+per-definition status array. A representative status is:
+
+```json
+{
+  "version": 1,
+  "state": "healthy",
+  "registryPath": "/Users/me/.config/thalweg/registry.d",
+  "acceptedAt": "2026-08-25T19:00:00.000000000Z",
+  "snapshotPath": "/Users/me/.local/share/thalweg/storage/registry/accepted-v1.json",
+  "healthy": 2,
+  "degraded": 0,
+  "stopped": 0,
+  "pendingReload": false,
+  "definitions": [
+    {
+      "name": "desktop-notes",
+      "kind": "Source",
+      "desiredState": "running",
+      "runtimeState": "running",
+      "network": "home",
+      "stream": "personal:note",
+      "digest": "sha256-hex",
+      "sourceFile": "/Users/me/.config/thalweg/registry.d/sources/notes.yaml",
+      "pid": 12345,
+      "processed": 14,
+      "failureCount": 0
+    }
+  ]
+}
+```
+
+`registry_inspect` accepts `{"name":"desktop-notes"}` and returns that
+definition's sanitized runtime status. `registry_start`, `registry_stop`, and
+`registry_restart` accept the same payload. Start clears a temporary stop;
+stop lasts only until start, reload, or daemon restart; restart replaces the
+currently running process without changing YAML.
+
+`registry_reload` accepts `{}`. It validates the complete registry directory,
+preflights referenced resources, atomically accepts the new snapshot, and then
+reconciles workers. Failure before acceptance leaves the running snapshot
+untouched. Its response is the aggregate registry status.
+
+`registry_reset` accepts `{"name":"transcript-archive"}`. It stops the named
+definition and deletes its registry-owned durable cursor and pending delivery.
+The definition remains stopped until an explicit start or successful reload.
+The CLI requires `--yes` before issuing this destructive local request.
+
+`registry_log` accepts:
+
+```json
+{"name":"desktop-notes","lines":100}
+```
+
+It returns `{"lines":["..."]}` from the bounded per-definition diagnostic log.
+The IPC action is a snapshot read; `thalweg registry logs --follow` implements
+follow mode by making repeated bounded requests.
 
 ### `daemon_shutdown`
 

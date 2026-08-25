@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -243,6 +244,10 @@ func (d *Daemon) pollDurableSiphon(network, name string, limit int) (DurableSiph
 }
 
 func (d *Daemon) waitForDurableSiphon(network, name string, limit int, wait time.Duration) (DurableSiphonDelivery, error) {
+	return d.waitForDurableSiphonContext(d.ctx, network, name, limit, wait)
+}
+
+func (d *Daemon) waitForDurableSiphonContext(ctx context.Context, network, name string, limit int, wait time.Duration) (DurableSiphonDelivery, error) {
 	if wait <= 0 {
 		return d.pollDurableSiphon(network, name, limit)
 	}
@@ -259,10 +264,28 @@ func (d *Daemon) waitForDurableSiphon(network, name string, limit int, wait time
 			continue
 		case <-deadline.C:
 			return delivery, nil
-		case <-d.ctx.Done():
-			return DurableSiphonDelivery{}, d.ctx.Err()
+		case <-ctx.Done():
+			return DurableSiphonDelivery{}, ctx.Err()
 		}
 	}
+}
+
+func (d *Daemon) deleteDurableSiphon(network, name string) error {
+	d.durableMu.Lock()
+	defer d.durableMu.Unlock()
+	return d.store.Update(func(txn *badger.Txn) error {
+		_, found, err := readDurableSiphon(txn, network, name)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return nil
+		}
+		if err := txn.Delete([]byte(durableSiphonKey(network, name))); err != nil {
+			return fmt.Errorf("delete durable siphon: %w", err)
+		}
+		return nil
+	})
 }
 
 func (d *Daemon) durableSiphonWakeChannel() <-chan struct{} {

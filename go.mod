@@ -8,6 +8,7 @@ require (
 	github.com/dgraph-io/badger/v4 v4.9.1
 	github.com/libp2p/go-libp2p v0.48.0
 	github.com/multiformats/go-multiaddr v0.16.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

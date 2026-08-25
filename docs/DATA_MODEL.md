@@ -54,6 +54,12 @@ time does not advance. The clock state is written in the same Badger transaction
 as the event. The daemon also implements the standard receive/merge cases for a
 remote HLC timestamp and an internal replicated-event receive boundary.
 
+The daemon opens Badger with synchronous writes enabled. A successful local
+ingestion therefore means the event envelope, event-ID index, arrival index,
+and HLC state have been committed durably before the response is returned.
+Replication remains asynchronous and is reported separately through peer
+health and synchronization results.
+
 ## Replicated Receive Semantics
 
 The internal replicated-event ingest path accepts a complete origin envelope.
@@ -165,6 +171,19 @@ delivery is acknowledged, polling returns the same immutable event references
 with an incremented attempt count. Acknowledgement advances the cursor through
 the batch atomically. This is local at-least-once delivery; it does not claim
 distributed exactly-once execution.
+
+Declarative Sink and Processor definitions use daemon-internal durable siphons
+whose names begin with `thalweg.registry.v1.`. That namespace is unavailable to
+ordinary public siphon creation and hidden from public siphon listing. An
+explicit registry reset deletes the internal definition, acknowledged cursor,
+and pending delivery so a changed selector can be accepted intentionally.
+
+Registry YAML, accepted definitions, process state, retry state, and logs are
+not part of immutable event storage. The last-known-good registry snapshot is
+an atomically replaced mode-`0600` file under the storage parent's `registry`
+directory. Runtime health remains in memory and is reconstructed from the
+accepted snapshot on daemon startup; workers never read or write BadgerDB
+directly.
 
 Peer addresses use:
 

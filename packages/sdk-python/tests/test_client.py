@@ -8,6 +8,59 @@ from .helpers import FakeDaemon, event_data, send_response
 
 
 class ClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ingest_retries_ambiguous_response_with_same_event_id(self) -> None:
+        attempts = 0
+
+        async def handler(request, _reader, writer):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                # Simulate a daemon that committed the event but lost its response.
+                writer.close()
+                await writer.wait_closed()
+                return
+            await send_response(
+                writer,
+                request,
+                event_data(
+                    event_id=request["payload"]["eventId"],
+                    payload=request["payload"]["payload"],
+                ),
+            )
+
+        async with FakeDaemon(handler) as daemon:
+            async with Thalweg(
+                socket_path=daemon.socket_path, network="personal"
+            ) as client:
+                result = await client.ingest("user:note", {"content": "retry me"})
+
+        self.assertEqual(len(daemon.requests), 2)
+        self.assertEqual(
+            daemon.requests[0]["payload"]["eventId"],
+            daemon.requests[1]["payload"]["eventId"],
+        )
+        self.assertEqual(result.id, daemon.requests[0]["payload"]["eventId"])
+
+    async def test_ingest_generates_retry_safe_event_id(self) -> None:
+        async def handler(request, _reader, writer):
+            await send_response(
+                writer,
+                request,
+                event_data(
+                    event_id=request["payload"]["eventId"],
+                    payload=request["payload"]["payload"],
+                ),
+            )
+
+        async with FakeDaemon(handler) as daemon:
+            async with Thalweg(
+                socket_path=daemon.socket_path, network="personal"
+            ) as client:
+                await client.ingest("user:note", {"content": "retry me"})
+
+        generated_id = daemon.requests[0]["payload"]["eventId"]
+        self.assertRegex(generated_id, r"^evt_[0-9a-f]{32}$")
+
     async def test_ingest_and_query_map_fields_and_preserve_nanoseconds(self) -> None:
         async def handler(request, _reader, writer):
             if request["action"] == "event_ingest":
@@ -120,4 +173,3 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

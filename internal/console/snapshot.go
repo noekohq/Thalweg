@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"thalweg/internal/registry"
 )
 
 const (
@@ -27,6 +29,7 @@ type Snapshot struct {
 	Networks        []Network       `json:"networks"`
 	Peers           []MeshPeer      `json:"peers"`
 	DurableSiphons  []DurableSiphon `json:"durableSiphons"`
+	Registry        registry.Status `json:"registry"`
 	SelectedNetwork string          `json:"selectedNetwork,omitempty"`
 	Events          []Event         `json:"events"`
 	Streams         []StreamSummary `json:"streams"`
@@ -152,6 +155,9 @@ func (s Service) Snapshot(ctx context.Context, requestedNetwork string) Snapshot
 		result.State = "degraded"
 		result.Error = fmt.Sprintf("network list unavailable: %v", err)
 		return result
+	}
+	if err := s.Caller.Call(ctx, "registry_status", map[string]any{}, &result.Registry); err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Registry runtime unavailable: %v", err))
 	}
 	sort.Slice(result.Networks, func(i, j int) bool {
 		return result.Networks[i].Name < result.Networks[j].Name

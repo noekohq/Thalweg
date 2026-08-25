@@ -19,6 +19,7 @@ import (
 	"time"
 
 	daemon "thalweg/core/daemon"
+	"thalweg/internal/registry"
 )
 
 func runInit(args []string, stdout, stderr io.Writer) error {
@@ -34,6 +35,7 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 	flags.SetOutput(stderr)
 	socket := flags.String("socket", defaults.SocketPath, "Unix socket path")
 	storage := flags.String("storage", defaults.StoragePath, "Badger database path")
+	registryPath := flags.String("registry", defaults.RegistryPath, "registry definition directory")
 	p2pListen := flags.String(
 		"p2p-listen",
 		strings.Join(defaults.P2PListenAddresses, ","),
@@ -50,12 +52,16 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 		SocketPath:         *socket,
 		StoragePath:        *storage,
 		P2PListenAddresses: splitCommaList(*p2pListen),
+		RegistryPath:       *registryPath,
 	}
 	err = writeLocalConfig(configPath, config, *force)
 	if errors.Is(err, os.ErrExist) {
 		existing, _, loadErr := loadLocalConfig()
 		if loadErr != nil {
 			return loadErr
+		}
+		if err := registry.EnsureDirectories(existing.RegistryPath); err != nil {
+			return fmt.Errorf("create registry directories: %w", err)
 		}
 		fmt.Fprintf(stdout, "Thalweg is already initialized at %s\n", configPath)
 		printConfiguredPaths(stdout, existing)
@@ -74,6 +80,7 @@ func printConfiguredPaths(output io.Writer, config localConfig) {
 	fmt.Fprintf(output, "  socket:  %s\n", config.SocketPath)
 	fmt.Fprintf(output, "  storage: %s\n", config.StoragePath)
 	fmt.Fprintf(output, "  p2p:     %s\n", strings.Join(config.P2PListenAddresses, ","))
+	fmt.Fprintf(output, "  registry: %s\n", config.RegistryPath)
 }
 
 func runConfiguredDaemon(args []string, stdout, stderr io.Writer) error {
@@ -85,6 +92,7 @@ func runConfiguredDaemon(args []string, stdout, stderr io.Writer) error {
 	flags.SetOutput(stderr)
 	socket := flags.String("socket", config.SocketPath, "Unix socket path")
 	storage := flags.String("storage", config.StoragePath, "Badger database path")
+	registryPath := flags.String("registry", config.RegistryPath, "registry definition directory")
 	p2pListen := flags.String(
 		"p2p-listen",
 		strings.Join(config.P2PListenAddresses, ","),
@@ -103,6 +111,7 @@ func runConfiguredDaemon(args []string, stdout, stderr io.Writer) error {
 		SocketPath:         *socket,
 		StoragePath:        *storage,
 		P2PListenAddresses: splitCommaList(*p2pListen),
+		RegistryPath:       *registryPath,
 	}
 	if *detach {
 		return startDetachedDaemon(resolved, *logPath, *debug, stdout)
@@ -126,6 +135,11 @@ func runDevelopmentDaemon(args []string, stdout, stderr io.Writer) error {
 		envOrDefault("THALWEG_STORAGE_PATH", "./storage/badger"),
 		"Badger database path",
 	)
+	registryPath := flags.String(
+		"registry",
+		envOrDefault("THALWEG_REGISTRY_PATH", "./registry.d"),
+		"registry definition directory",
+	)
 	p2pListen := flags.String(
 		"p2p-listen",
 		os.Getenv("THALWEG_P2P_LISTEN_ADDRS"),
@@ -142,6 +156,7 @@ func runDevelopmentDaemon(args []string, stdout, stderr io.Writer) error {
 		SocketPath:         *socket,
 		StoragePath:        *storage,
 		P2PListenAddresses: splitCommaList(*p2pListen),
+		RegistryPath:       *registryPath,
 	}, *debug, stdout)
 }
 
@@ -152,6 +167,7 @@ func serveDaemon(config localConfig, debug bool, stdout io.Writer) error {
 		DBPath:             config.StoragePath,
 		P2PListenAddresses: config.P2PListenAddresses,
 		Debug:              debug,
+		RegistryPath:       config.RegistryPath,
 	})
 	if err != nil {
 		return fmt.Errorf("create daemon: %w", err)
@@ -274,6 +290,9 @@ func detachedDaemonArgs(config localConfig, debug bool) []string {
 		"--socket", config.SocketPath,
 		"--storage", config.StoragePath,
 		"--p2p-listen", strings.Join(config.P2PListenAddresses, ","),
+	}
+	if config.RegistryPath != "" {
+		args = append(args, "--registry", config.RegistryPath)
 	}
 	if debug {
 		args = append(args, "--debug")

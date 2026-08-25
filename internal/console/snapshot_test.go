@@ -65,7 +65,7 @@ func TestSnapshotLoadsSharedConsoleState(t *testing.T) {
 	if len(snapshot.DurableSiphons) != 1 || snapshot.DurableSiphons[0].Name != "archive" {
 		t.Fatalf("durable siphons = %#v", snapshot.DurableSiphons)
 	}
-	query := caller.calls[4].payload.(map[string]any)
+	query := caller.calls[5].payload.(map[string]any)
 	if query["network"] != "home" || query["limit"] != 25 || query["order"] != "desc" {
 		t.Fatalf("event query payload = %#v", query)
 	}

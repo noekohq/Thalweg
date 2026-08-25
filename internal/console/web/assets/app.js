@@ -17383,6 +17383,10 @@ function df() {
 			value: String(te.length)
 		},
 		{
+			label: "Integrations",
+			value: String(t?.registry?.definitions?.length ?? 0)
+		},
+		{
 			label: "Versions",
 			value: t ? `${t.status.daemonVersion || "?"} · IPC ${t.status.protocolVersion || "?"} · DB ${t.status.storageSchemaVersion || "?"}` : "—"
 		}
@@ -17845,6 +17849,51 @@ function df() {
 								] }, e.peerId)) })]
 							})
 						}) : /* @__PURE__ */ (0, V.jsx)(uf, { children: "No known peers for this network." })]
+					}),
+					/* @__PURE__ */ (0, V.jsxs)(wl, {
+						withBorder: !0,
+						padding: "lg",
+						children: [/* @__PURE__ */ (0, V.jsx)(lf, {
+							title: "Registry",
+							detail: t?.registry?.pendingReload ? "Pending reload" : "Accepted local definitions"
+						}), t?.registry?.definitions?.length ? /* @__PURE__ */ (0, V.jsx)(Eo, {
+							type: "auto",
+							children: /* @__PURE__ */ (0, V.jsxs)($, {
+								verticalSpacing: "sm",
+								miw: 760,
+								children: [/* @__PURE__ */ (0, V.jsx)($.Thead, { children: /* @__PURE__ */ (0, V.jsxs)($.Tr, { children: [
+									/* @__PURE__ */ (0, V.jsx)($.Th, { children: "Name" }),
+									/* @__PURE__ */ (0, V.jsx)($.Th, { children: "Kind" }),
+									/* @__PURE__ */ (0, V.jsx)($.Th, { children: "State" }),
+									/* @__PURE__ */ (0, V.jsx)($.Th, { children: "Network" }),
+									/* @__PURE__ */ (0, V.jsx)($.Th, { children: "Processed" }),
+									/* @__PURE__ */ (0, V.jsx)($.Th, { children: "Last activity" })
+								] }) }), /* @__PURE__ */ (0, V.jsx)($.Tbody, { children: t.registry.definitions.map((e) => /* @__PURE__ */ (0, V.jsxs)($.Tr, { children: [
+									/* @__PURE__ */ (0, V.jsxs)($.Td, { children: [/* @__PURE__ */ (0, V.jsx)(J, {
+										ff: "monospace",
+										size: "sm",
+										children: e.name
+									}), e.lastError && /* @__PURE__ */ (0, V.jsx)(J, {
+										c: "yellow",
+										size: "xs",
+										maw: 300,
+										children: e.lastError
+									})] }),
+									/* @__PURE__ */ (0, V.jsx)($.Td, { children: /* @__PURE__ */ (0, V.jsx)(cl, {
+										variant: "light",
+										children: e.kind
+									}) }),
+									/* @__PURE__ */ (0, V.jsx)($.Td, { children: /* @__PURE__ */ (0, V.jsx)(cl, {
+										color: e.runtimeState === "failed" || e.runtimeState === "backoff" ? "yellow" : e.runtimeState === "running" || e.runtimeState === "waiting" || e.runtimeState === "completed" ? "green" : "gray",
+										variant: "light",
+										children: e.runtimeState
+									}) }),
+									/* @__PURE__ */ (0, V.jsx)($.Td, { children: e.network }),
+									/* @__PURE__ */ (0, V.jsx)($.Td, { children: e.processed }),
+									/* @__PURE__ */ (0, V.jsx)($.Td, { children: sf(e.lastSuccessAt) })
+								] }, e.name)) })]
+							})
+						}) : /* @__PURE__ */ (0, V.jsx)(uf, { children: "No accepted registry definitions." })]
 					}),
 					/* @__PURE__ */ (0, V.jsxs)(wl, {
 						withBorder: !0,

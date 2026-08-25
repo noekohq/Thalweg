@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"thalweg/internal/registry"
 )
 
 func TestValidateLoopbackListen(t *testing.T) {
@@ -82,6 +84,11 @@ func TestDiagnosticsAreDownloadableAndRedactedByContract(t *testing.T) {
 	caller := &fakeCaller{responses: map[string]any{
 		"network_status": NodeStatus{DeviceID: "public-device-id", AddressGroups: map[string][]string{}},
 		"network_list":   []Network{{Name: "home", ID: "home-id"}},
+		"registry_status": registry.Status{
+			RegistryPath: "/Users/private/.config/thalweg/registry.d",
+			SnapshotPath: "/Users/private/.local/share/thalweg/registry/accepted-v1.json",
+			Definitions:  []registry.DefinitionStatus{{Name: "safe-name", SourceFile: "/Users/private/source.yaml"}},
+		},
 		"event_query": []Event{{
 			ID: "event-id", Network: "home", Stream: "secret:test",
 			Payload: json.RawMessage(`{"apiKey":"secret-value"}`),
@@ -99,7 +106,7 @@ func TestDiagnosticsAreDownloadableAndRedactedByContract(t *testing.T) {
 	if !strings.Contains(response.Header().Get("Content-Disposition"), "thalweg-diagnostics.json") {
 		t.Fatalf("content disposition = %q", response.Header().Get("Content-Disposition"))
 	}
-	if strings.Contains(response.Body.String(), "invitation") || strings.Contains(response.Body.String(), "secret-value") {
+	if strings.Contains(response.Body.String(), "invitation") || strings.Contains(response.Body.String(), "secret-value") || strings.Contains(response.Body.String(), "/Users/private") {
 		t.Fatalf("diagnostics included credential-like fields: %s", response.Body.String())
 	}
 	if !strings.Contains(response.Body.String(), `"redacted": true`) {

@@ -1,4 +1,5 @@
-import { DaemonClient, DaemonEvent } from "./client";
+import { randomUUID } from "node:crypto";
+import { DaemonClient, DaemonEvent, ThalwegDaemonError } from "./client";
 export { ThalwegDaemonError } from "./client";
 
 export interface ThalwegConfiguration {
@@ -388,18 +389,7 @@ export class Thalweg<
     });
     this.basins = basins;
     this.context = {
-      ingest: async (stream, payload, opts = {}) => {
-        return this.client.request<ThalwegEvent<Payloads[typeof stream]>>(
-          "event_ingest",
-          {
-            network: this.config.network,
-            stream: String(stream),
-            payload,
-            occurredAt: opts.occurredAt,
-            eventId: opts.eventId,
-          },
-        );
-      },
+      ingest: (stream, payload, opts = {}) => this.ingest(stream, payload, opts),
     };
   }
 
@@ -408,7 +398,32 @@ export class Thalweg<
     payload: Payloads[S],
     opts?: IngestOptions,
   ): Promise<ThalwegEvent<Payloads[S]>> {
-    return this.context.ingest(stream, payload, opts);
+    const eventId = opts?.eventId ?? `evt_${randomUUID()}`;
+    try {
+      return await this.client.request<ThalwegEvent<Payloads[S]>>(
+        "event_ingest",
+        {
+          network: this.config.network,
+          stream: String(stream),
+          payload,
+          occurredAt: opts?.occurredAt,
+          eventId,
+        },
+      );
+    } catch (error) {
+      if (error instanceof ThalwegDaemonError && !error.retryable) {
+        throw error;
+      }
+      // A commit may have succeeded before the local response was lost. The
+      // preselected ID makes one retry safe and prevents duplicate events.
+      return this.client.request<ThalwegEvent<Payloads[S]>>("event_ingest", {
+        network: this.config.network,
+        stream: String(stream),
+        payload,
+        occurredAt: opts?.occurredAt,
+        eventId,
+      });
+    }
   }
 
   async query(

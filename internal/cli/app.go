@@ -50,6 +50,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = runLab(args[1:], stdout, stderr)
 	case "siphon":
 		err = runSiphon(args[1:], stdout, stderr)
+	case "registry":
+		err = runRegistry(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n", args[0])
 		printUsage(stderr)
@@ -101,6 +103,14 @@ Usage:
   thalweg siphon list [--network NAME]
   thalweg siphon poll --network NAME [--limit 25] [--wait 20s] SIPHON_NAME
   thalweg siphon ack --network NAME --delivery DELIVERY_ID SIPHON_NAME
+	thalweg registry validate [--json]
+	thalweg registry reload
+	thalweg registry status [--json]
+	thalweg registry list [--json]
+	thalweg registry inspect NAME
+	thalweg registry start|stop|restart NAME
+	thalweg registry reset --yes NAME
+	thalweg registry logs [--lines 100] [--follow] NAME
   thalweg join [--address MULTIADDR] [--debug]
   thalweg version
 

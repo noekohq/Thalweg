@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"thalweg/internal/registry"
 )
 
 const (
@@ -17,6 +19,7 @@ type localConfig struct {
 	SocketPath         string   `json:"socketPath"`
 	StoragePath        string   `json:"storagePath"`
 	P2PListenAddresses []string `json:"p2pListenAddresses"`
+	RegistryPath       string   `json:"registryPath"`
 }
 
 func defaultConfigPath() (string, error) {
@@ -43,10 +46,15 @@ func defaultLocalConfig() (localConfig, error) {
 	if dataRoot == "" {
 		dataRoot = filepath.Join(home, ".local", "share")
 	}
+	configRoot := os.Getenv("XDG_CONFIG_HOME")
+	if configRoot == "" {
+		configRoot = filepath.Join(home, ".config")
+	}
 	return localConfig{
 		SocketPath:         defaultSocketPath,
 		StoragePath:        filepath.Join(dataRoot, "thalweg", "storage", "badger"),
 		P2PListenAddresses: []string{defaultP2PListen},
+		RegistryPath:       filepath.Join(configRoot, "thalweg", "registry.d"),
 	}, nil
 }
 
@@ -77,11 +85,21 @@ func loadLocalConfig() (localConfig, string, error) {
 	if value := os.Getenv("THALWEG_P2P_LISTEN_ADDRS"); value != "" {
 		config.P2PListenAddresses = splitCommaList(value)
 	}
+	if value := os.Getenv("THALWEG_REGISTRY_PATH"); value != "" {
+		config.RegistryPath = value
+	}
 	if config.SocketPath == "" {
 		return localConfig{}, path, fmt.Errorf("socketPath is required in %s", path)
 	}
 	if config.StoragePath == "" {
 		return localConfig{}, path, fmt.Errorf("storagePath is required in %s", path)
+	}
+	if config.RegistryPath == "" {
+		defaults, defaultsErr := defaultLocalConfig()
+		if defaultsErr != nil {
+			return localConfig{}, path, defaultsErr
+		}
+		config.RegistryPath = defaults.RegistryPath
 	}
 	return config, path, nil
 }
@@ -107,6 +125,9 @@ func writeLocalConfig(path string, config localConfig, force bool) error {
 	}
 	if err := os.MkdirAll(filepath.Dir(config.StoragePath), 0o700); err != nil {
 		return fmt.Errorf("create storage directory: %w", err)
+	}
+	if err := registry.EnsureDirectories(config.RegistryPath); err != nil {
+		return fmt.Errorf("create registry directories: %w", err)
 	}
 
 	content, err := json.MarshalIndent(config, "", "  ")
