@@ -1,0 +1,26 @@
+apiVersion: thalweg.dev/v1alpha1
+kind: Processor
+metadata:
+  name: knowledge-changelog-entries
+  labels:
+    demo: project-management-changelog
+spec:
+  network: home
+  events:
+    streams: [knowledge:file_change]
+    start: earliest
+  delivery:
+    maxEvents: 25
+    wait: 2s
+  output:
+    allowedStreams: [knowledge:changelog_entry]
+  runner:
+    type: exec
+    command:
+      - /usr/bin/python3
+      - /Users/atilgner/Desktop/Development/contributing/Thalweg/examples/project-management-registry-demo/process_changes.py
+  timeout: 30s
+  retry:
+    policy: always
+    initialBackoff: 500ms
+    maxBackoff: 10s

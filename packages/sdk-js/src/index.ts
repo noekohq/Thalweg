@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { DaemonClient, DaemonEvent, ThalwegDaemonError } from "./client";
-export { ThalwegDaemonError } from "./client";
+import { DaemonClient, DaemonEvent, ThalwegDaemonError } from "./client.js";
+export { ThalwegDaemonError } from "./client.js";
 
 export interface ThalwegConfiguration {
   socket: string;

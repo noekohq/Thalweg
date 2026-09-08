@@ -1,0 +1,25 @@
+apiVersion: thalweg.dev/v1alpha1
+kind: Sink
+metadata:
+  name: knowledge-changelog-writer
+  labels:
+    demo: project-management-changelog
+spec:
+  network: home
+  events:
+    streams: [knowledge:changelog_entry]
+    start: earliest
+  delivery:
+    maxEvents: 25
+    wait: 2s
+  runner:
+    type: exec
+    command:
+      - /usr/bin/python3
+      - /Users/atilgner/Desktop/Development/contributing/Thalweg/examples/project-management-registry-demo/append_changelog.py
+      - /Users/atilgner/project-management/changelog.md
+  timeout: 30s
+  retry:
+    policy: always
+    initialBackoff: 500ms
+    maxBackoff: 10s

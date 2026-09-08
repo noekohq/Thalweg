@@ -1,0 +1,24 @@
+apiVersion: thalweg.dev/v1alpha1
+kind: Source
+metadata:
+  name: knowledge-files
+  labels:
+    demo: project-management-changelog
+spec:
+  network: home
+  stream: knowledge:file_change
+  runner:
+    type: exec
+    command:
+      - /usr/bin/python3
+      - /Users/atilgner/Desktop/Development/contributing/Thalweg/examples/project-management-registry-demo/watch_project_management.py
+      - /Users/atilgner/project-management
+      - --exclude
+      - changelog.md
+    mode: stream
+  input:
+    format: raw-ndjson
+  retry:
+    policy: always
+    initialBackoff: 500ms
+    maxBackoff: 10s

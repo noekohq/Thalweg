@@ -102,6 +102,7 @@ Usage:
   thalweg siphon create --network NAME [--streams A,B] [--start earliest] SIPHON_NAME
   thalweg siphon list [--network NAME]
   thalweg siphon poll --network NAME [--limit 25] [--wait 20s] SIPHON_NAME
+  thalweg siphon follow --network NAME [--streams A,B] [--start latest] [--limit 25] [--wait 20s] SIPHON_NAME
   thalweg siphon ack --network NAME --delivery DELIVERY_ID SIPHON_NAME
 	thalweg registry validate [--json]
 	thalweg registry reload

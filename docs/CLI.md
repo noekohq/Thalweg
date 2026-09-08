@@ -524,6 +524,26 @@ thalweg siphon ack \
   transcript-archive
 ```
 
+For a terminal-friendly ongoing NDJSON feed, use `follow`. It creates (or
+reuses) a named durable siphon, prints each delivered event as one compact JSON
+line, acknowledges each batch after writing it, and resumes from the last
+acknowledged cursor if restarted:
+
+```bash
+thalweg siphon follow \
+  --network home \
+  --streams voice:transcript,user:note \
+  --start latest \
+  --limit 25 \
+  --wait 20s \
+  live-events
+```
+
+Stop it with Ctrl-C. `--wait` is a bounded long-poll interval (maximum 25s),
+not a historical time window; use `event query --from/--to` for time-bounded
+snapshots. The named siphon remains available for inspection or later follow
+runs with `thalweg siphon list`.
+
 If the processor or daemon stops before acknowledgement, the next poll returns
 the same batch and increments its attempt count. Side effects must therefore be
 idempotent. `--start latest` begins after events already stored on this daemon;
